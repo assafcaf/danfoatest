@@ -1,0 +1,29 @@
+ENV_PARAMETERS:
+  num_frames: 2
+  num_agent: 5
+  ep_length: 600
+  num_envs: 32
+  num_cpus: 32
+
+RL_PARAMETERS:
+  learner: "dqn"
+  spawn_speed: "fast"
+  learning_rate: 0.00025
+  batch_size: 32*32
+  tau: 0.01
+  gamma: 0.99
+  train_freq: 4
+  exploration_fraction: 0.3
+  learning_starts: 5e5
+  buffer_size: 1e6
+  exploration_final_eps: 0.1
+
+EXPERIMENT_PARAMETERS:
+  gpu_id: 0
+  run_name_template: "{experiment}-{metric}-{spawn_speed}"
+  penalty: True
+  metric: "Efficiency"
+  independent: True
+  experiment: "nrp"
+  debug: False
+  total_timesteps: 150_000_000

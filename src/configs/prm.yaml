@@ -1,0 +1,43 @@
+RP_PARAMETERS:
+  n_labels: 10000
+  pretrain_labels: 250
+  pretrain_iters: 500
+  train_freq: 1
+  predictor_epochs: 1
+  buffer_ratio: 0.1
+  pre_trian: False
+  lr: 0.0001
+  
+
+ENV_PARAMETERS:
+  num_frames: 2
+  num_agent: 7
+  ep_length: 600
+  num_envs: 32
+  num_cpus: 32
+
+RL_PARAMETERS:
+  learner: "dqn"
+  spawn_speed: "fast"
+  learning_rate: 0.00025
+  batch_size: 32*32
+  tau: 0.01
+  gamma: 0.99
+  train_freq: 4
+  exploration_fraction: 0.3
+  learning_starts: 5e5
+  buffer_size: 1e6
+  exploration_final_eps: 0.1
+
+EXPERIMENT_PARAMETERS:
+  penalty: False
+  metric: "Efficiency"
+  experiment: "prm"
+  independent: Flase
+  from_model: False
+  freeze_rp: False
+  run_name_template: "{experiment}-{metric}-{spawn_speed}"
+  rp_wieghts_pth: "results/dqn/experiment-dd-Efficiency-m-5-cnn/run_20241117175227/predictor/checkpoints/predictor_0.pth"
+  gpu_id: 0
+  debug: False
+  total_timesteps: 150_000_000
