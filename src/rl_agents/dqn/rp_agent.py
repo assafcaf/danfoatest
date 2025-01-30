@@ -9,21 +9,17 @@ from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, RolloutReturn, Schedule, TrainFreq, TrainFrequencyUnit
 from stable_baselines3.common.noise import ActionNoise, VectorizedActionNoise
-from ...reward_predictor import PrmComparisonRewardPredictor
 import psutil 
 
 from .single_agent import DQN
 
 class DQNRP(DQN):
     def __init__(self,
+                predictor,
                 env:Union[GymEnv, str],
-                num_agents: int,
-                predictor: PrmComparisonRewardPredictor,
                 *args, **kwargs):
         
         super().__init__(env=env, *args, **kwargs)
-        self.num_agents = num_agents
-        self.num_envs = env.num_envs // num_agents
         self.predictor = predictor
 
     def collect_rollouts(
@@ -88,17 +84,9 @@ class DQNRP(DQN):
             new_obs, expiriment_rewards, dones, infos = env.step(actions)
             real_rewards = np.array([f["true_reward"] for f in infos])
             # reward predictor
-            if not self.real_rewards:
-                pred_rewards = self.predictor.predict(obs_as_tensor(self._last_obs, self.policy.device),
-                                                    th.tensor(actions).to(self.policy.device))
-                try:
-                    human_obs = self.env.get_images()
-                except AttributeError:
-                    human_obs = [info["human_obs"] for info in infos]
-                self.predictor.store_step(self._last_obs, actions, pred_rewards, expiriment_rewards, real_rewards, human_obs)
-            else: pred_rewards = expiriment_rewards
-            
-            
+            pred_rewards = self.predictor.predict(obs_as_tensor(self._last_obs, self.policy.device),
+                                    th.tensor(actions).to(self.policy.device)).squeeze()
+
             self.num_timesteps += env.num_envs
             num_collected_steps += 1
 
@@ -136,11 +124,6 @@ class DQNRP(DQN):
                     if log_interval is not None and self._episode_num % log_interval == 0:
                         self._dump_logs()
                     
-            # train reward_predictor
-            if dones.all() and not self.real_rewards:
-                    for path, agent_id in self.predictor.get_paths():
-                        self.predictor.path_callback(path, agent_id) 
-
         callback.on_rollout_end()
 
         return RolloutReturn(num_collected_steps * env.num_envs, num_collected_episodes, continue_training)

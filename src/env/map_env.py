@@ -148,7 +148,8 @@ class MapEnv(gymnasium.Env):
             observations[agent.agent_id] = {"curr_obs": rgb_arr}
             rewards[agent.agent_id] = agent.compute_reward()
             dones[agent.agent_id] = agent.get_done()
-            infos[agent.agent_id] = {"state": self.state}
+            infos[agent.agent_id] = {"state": self.state,
+                                     'true_reward': rewards[agent.agent_id]}
         dones["__all__"] = np.any(list(dones.values()))
         return observations, rewards, dones, infos
 

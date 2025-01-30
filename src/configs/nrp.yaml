@@ -9,7 +9,7 @@ RL_PARAMETERS:
   learner: "dqn"
   spawn_speed: "fast"
   learning_rate: 0.00025
-  batch_size: 32*32
+  batch_size: 32
   tau: 0.01
   gamma: 0.99
   train_freq: 4
@@ -17,6 +17,7 @@ RL_PARAMETERS:
   learning_starts: 5e5
   buffer_size: 1e6
   exploration_final_eps: 0.1
+  policy: CnnPolicy
 
 EXPERIMENT_PARAMETERS:
   gpu_id: 0

@@ -7,7 +7,14 @@ class RLWithRewardPredictor:
     Wrapper class that integrates a reinforcement learning agent (DQNRP) and a reward prediction network,
     handling asynchronous reward predictor training with multi-agent parallelization.
     """
-    def __init__(self, rl_agent, reward_predictor, train_rp_freq=1000, async_rp_training=True, parallel_agents=True):
+    def __init__(self,
+                 rl_agent,
+                 reward_predictor,
+                 train_rp_freq=1000,
+                 async_rp_training=True,
+                 parallel_agents=True,
+                 rp_learning_starts=10,
+                 batch_size=4):
         """
         Initializes the wrapper.
 
@@ -22,59 +29,88 @@ class RLWithRewardPredictor:
         self.train_rp_freq = train_rp_freq
         self.async_rp_training = async_rp_training
         self.parallel_agents = parallel_agents
+        self.batch_size = batch_size
         self.total_steps = 0
+        self.total_episodes = 0
         self.training_thread = None
-
+        self.rp_learning_starts = rp_learning_starts
         if self.parallel_agents:
             self.pool = mp.Pool(processes=mp.cpu_count())
 
-    def train(self, total_timesteps):
+    def learn(self,
+            total_timesteps,
+            callback,
+            log_interval,
+            tb_log_name="run",
+            reset_num_timesteps=True,
+            progress_bar=False):
         """
         Train the RL agent and periodically train the reward predictor.
 
         :param total_timesteps: Total number of timesteps to train the RL agent.
         """
+        total_timesteps, callback = self.rl_agent._setup_learn(
+                total_timesteps,
+                callback,
+                reset_num_timesteps,
+                tb_log_name,
+                progress_bar,
+            )
+        ep_cnt = 0
+        callback.on_training_start(locals(), globals())
+        assert self.rl_agent.env is not None, "You must set the environment before calling learn()"
+
         while self.total_steps < total_timesteps:
             # Collect rollouts with the RL agent
-            rollouts = self.rl_agent.collect_rollouts(
+            rollout = self.rl_agent.collect_rollouts(
                 env=self.rl_agent.env,
-                callback=self.rl_agent._callback,
+                callback=callback,
                 train_freq=self.rl_agent.train_freq,
                 replay_buffer=self.rl_agent.replay_buffer,
                 action_noise=self.rl_agent.action_noise,
                 learning_starts=self.rl_agent.learning_starts,
-                log_interval=self.rl_agent.log_interval,
+                log_interval=log_interval,
             )
-
-            self.total_steps += rollouts.timesteps
-
+            if not rollout.continue_training:
+                break
+            self.total_steps += rollout.episode_timesteps
+            self.total_episodes += rollout.n_episodes//self.rl_agent.env.num_envs
             # Train the reward predictor periodically
-            if self.total_steps % self.train_rp_freq == 0:
+            if self.total_episodes > self.rp_learning_starts and self.total_episodes > ep_cnt:
+                batch = self.rl_agent.replay_buffer.get_episodes(n_episodes=8)
                 if self.async_rp_training:
-                    self._train_reward_predictor_async()
+                    self._train_reward_predictor_async(batch=batch)
                 else:
-                    self.train_reward_predictor()
-
+                    rp_log_dict = self.train_reward_predictor(batch=batch)
+                    for k, v in rp_log_dict.items():
+                        self.rl_agent.logger.record(k, v)
             # Train the RL agent
-            self.rl_agent.train_step()
+            gradient_steps = self.rl_agent.gradient_steps if self.rl_agent.gradient_steps >= 0 else rollout.episode_timesteps
+            ep_cnt = self.total_episodes
+            # Special case when the user passes `gradient_steps=0`
+            if gradient_steps > 0:
+                self.rl_agent.train(batch_size=self.rl_agent.batch_size, gradient_steps=gradient_steps)
 
-    def _train_reward_predictor_async(self):
+        callback.on_training_end()
+        return self
+    
+    def _train_reward_predictor_async(self, batch):
         """
         Train the reward predictor asynchronously in a separate thread.
         """
         if self.training_thread is None or not self.training_thread.is_alive():
-            self.training_thread = threading.Thread(target=self.train_reward_predictor, daemon=True)
+            self.training_thread = threading.Thread(target=self.train_reward_predictor, daemon=True, args=batch)
             self.training_thread.start()
 
-    def train_reward_predictor(self):
+    def train_reward_predictor(self, batch):
         """
         Train the reward predictor network, with parallelization if enabled.
         """
         if self.parallel_agents:
             avg_loss = sum(self.pool.map(self._train_single_predictor, self.reward_predictor.predictors)) / len(self.reward_predictor.predictors)
         else:
-            avg_loss = self.reward_predictor.train_predictor(verbose=True)
-        print(f"[Reward Predictor] Average training loss: {avg_loss}")
+            rp_log_dict = self.reward_predictor.train_predictor(batch=batch, verbose=False)
+        return rp_log_dict
 
     def _train_single_predictor(self, predictor):
         """

@@ -79,8 +79,8 @@ class SingleAgentCallback(BaseCallback):
             file_name = self.logger.dir + f"/iteration_{self.iterations_+1}_score_{int(score)}.mp4"
             self.save_video(file_name, frames)
         self.iterations_ += 1
-        if (self.iterations_ % self.save_every) == 0:
-            self.model.save(os.path.join(self.logger.dir, "checkpoints"))
+        # if (self.iterations_ % self.save_every) == 0:
+        #     self.model.save(os.path.join(self.logger.dir, "checkpoints"))
 
     def save_video(self, video_path, rgb_arrs, format="mp4v"):
         print("Rendering video...")

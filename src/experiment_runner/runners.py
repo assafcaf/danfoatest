@@ -6,10 +6,10 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 # local imports
 from callbacks import SingleAgentCallback
 from configs import Config
-from reward_predictor import AgentLoggerSb3, LabelAnnealer, function_wrapper, PrmComparisonRewardPredictor
-from learners.rl_predictor_warpper import RLWithRewardPredictor, RLWithRewardPredictorBuffer
+from reward_predictor import AgentLoggerSb3, LabelAnnealer, function_wrapper, ComparisonRewardPredictor
+from learners import RLWithRewardPredictor, RLWithRewardPredictorBuffer
 from env import parallel_env
-from rl_agents import DQN, IndependentDQN, PPO, CnnFeatureExtractor
+from rl_agents import DQN, IndependentDQN, PPO, CnnFeatureExtractor, DQNRP
 
 import os
 import yaml
@@ -39,9 +39,10 @@ class BaseRunner:
             "gamma": self.config.RL_PARAMETERS.gamma,
             "train_freq": self.config.RL_PARAMETERS.train_freq,
             "exploration_fraction": self.config.RL_PARAMETERS.exploration_fraction,
-            "learning_starts": int(self.config.RL_PARAMETERS.learning_starts),
-            "buffer_size": int(self.config.RL_PARAMETERS.buffer_size),
+            "learning_starts": self.config.RL_PARAMETERS.learning_starts,
+            "buffer_size": self.compute_buffer_size(),
             "exploration_final_eps": self.config.RL_PARAMETERS.exploration_final_eps,
+            "policy": self.config.RL_PARAMETERS.policy
         }
    
     def init_experiment(self, agent_fn):
@@ -129,12 +130,19 @@ class BaseRunner:
                     progress_bar=True)
         print("Finished training.")
 
+    def compute_buffer_size(self):
+        buffer_size = self.config.RL_PARAMETERS.buffer_size
+        num_envs = self.config.ENV_PARAMETERS.num_envs
+        num_agent = self.config.ENV_PARAMETERS.num_agent
+        ep_length = self.config.ENV_PARAMETERS.ep_length
+        return buffer_size*num_envs*num_agent*ep_length
+
     @staticmethod
     def parse_args():
         """Parses command-line arguments."""
         import argparse
         parser = argparse.ArgumentParser(description="Experiment Runner")
-        parser.add_argument("--config", "-c", help="Path to the configuration file", default='nrp.yaml')
+        parser.add_argument("--config", "-c", help="Path to the configuration file", default='prm.yaml')
         return parser.parse_args()
 
     @staticmethod
@@ -207,68 +215,46 @@ class PRMRunner(BaseRunner):
         self.log_dir = os.path.join(str(Path(__file__).resolve().parent.parent.parent), "results")
 
     def init_experiment(self):
-        """Configures the agent."""
-        if self.config.EXPERIMENT_PARAMETERS.independent:
-            self.learner_kwargs["num_agents"] = self.config.ENV_PARAMETERS.num_agent
-        agent_fn = RLWithRewardPredictor
-        return super().init_experiment(agent_fn)    
+        if self.config.RL_PARAMETERS.learner == "dqn":
+            if self.config.EXPERIMENT_PARAMETERS.independent:
+                self.learner_kwargs["num_agents"] = self.config.ENV_PARAMETERS.num_agent
+                agent_fn = IndependentDQN
+            else: 
+                agent_fn = DQNRP
+        elif self.config.RL_PARAMETERS.learner == "ppo":
+            agent_fn = PPO
+        else:
+            raise ValueError(f"Unsupported learner type: {self.learner}")
+        
+        return super().init_experiment(agent_fn) 
 
-    def set_up_rp(self, logger):
+    def set_up_rp(self, logger, env):
         """Set up reward predictor and its logging infrastructure."""
-        n_labels = self.config.RRP_PARAMETERS.n_labels
-        num_timesteps = self.config.EXPERIMENT_PARAMETERS.total_timesteps
-        pretrain_labels = self.config.RP_PARAMETERS.pretrain_labels
-        num_envs = self.config.ENV_PARAMETERS.num_envs
-        train_freq = self.config.RP_PARAMETERS.train_freq
-        buffer_ratio = self.config.RP_PARAMETERS.buffer_ratio
-        pre_trian = self.config.RP_PARAMETERS.pre_trian
         predictor_epochs = self.config.RP_PARAMETERS.predictor_epochs
         lr = self.config.RP_PARAMETERS.lr
 
-        # Configure logging
-        predictor_loggers = AgentLoggerSb3(logger)
-
-        # Set up the label schedule (if applicable)
-        label_schedules = None
-        if n_labels:
-            label_schedules = LabelAnnealer(
-                agent_logger=predictor_loggers,
-                final_timesteps=num_timesteps,
-                final_labels=n_labels,
-                pretrain_labels=pretrain_labels
-            )
-
 
         # Initialize reward predictor
-        env = self.self.setup_environment(self.config, num_envs)
         predictor = ComparisonRewardPredictor(
-            num_envs=num_envs,
-            agent_loggers=predictor_loggers,
-            label_schedules=label_schedules,
+            agent_logger=logger,
             observation_space=env.observation_space,
-            action_space=env.action_space,
+            action_space=env.action_space.n,
             epochs=predictor_epochs,
             device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
             lr=lr,
-            train_freq=train_freq,
-            comparison_collector_max_len=int(n_labels * buffer_ratio),
-            pre_train=pre_trian,
-            from_model=False,
-            model_path="",
-            freeze_rp=False
         )
 
         # Pre-train if necessary
-        if pre_trian:
-            env_factory = function_wrapper(self.setup_environment, self.config, 1)
-            predictor.pre_trian(
-                make_env=env_factory,
-                pretrain_labels=pretrain_labels
-            )
+        # if pre_trian:
+        #     env_factory = function_wrapper(self.setup_environment, self.config, 1)
+        #     predictor.pre_trian(
+        #         make_env=env_factory,
+        #         pretrain_labels=pretrain_labels
+        #     )
 
         return predictor
 
-    def setup_loggers(log_dir):
+    def setup_loggers(self, log_dir):
         rl_logger = configure(log_dir, ["stdout", "tensorboard", "csv"])
         rp_loggers = AgentLoggerSb3(rl_logger)
         loggers = {"rl": [rl_logger],
@@ -277,18 +263,29 @@ class PRMRunner(BaseRunner):
 
     def setup_agent(self, vec_env, agent_fn, log_dir):
         loggers = self.setup_loggers(log_dir)
-        rp = self.set_up_rp(loggers["rp"])
+        reward_predictor = self.set_up_rp(loggers["rp"], vec_env)
+        train_rp_freq = self.config.RP_PARAMETERS.train_freq*self.config.ENV_PARAMETERS.ep_length
         policy_kwargs = dict(
             features_extractor_class=CnnFeatureExtractor,
             features_extractor_kwargs=dict(features_dim=128),
         )
 
-        agent = agent_fn(env=vec_env,
-                         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
-                         policy_kwargs=policy_kwargs,
-                         replay_buffer_class=RLWithRewardPredictorBuffer
-                         **self.learner_kwargs
+        rl_agent = agent_fn(env=vec_env,
+                            predictor=reward_predictor,
+                            device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+                            policy_kwargs=policy_kwargs,
+                            replay_buffer_class=RLWithRewardPredictorBuffer,
+                            replay_buffer_kwargs={"episode_length": self.config.ENV_PARAMETERS.ep_length},
+                            **self.learner_kwargs
                     )
-        agent.set_logger(loggers["rl"])
+        rl_agent.set_logger(loggers["rl"])
+        agent = RLWithRewardPredictor(rl_agent=rl_agent,
+                                      rp_learning_starts=self.config.RP_PARAMETERS.learning_starts,
+                                      reward_predictor=reward_predictor,
+                                      train_rp_freq=train_rp_freq,
+                                      async_rp_training=False,
+                                      parallel_agents=False,
+                                      batch_size=self.config.RP_PARAMETERS.batch_size)
+
         return agent   
 

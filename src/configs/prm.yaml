@@ -1,9 +1,11 @@
 RP_PARAMETERS:
   n_labels: 10000
+  learning_starts: 10
+  batch_size: 8
   pretrain_labels: 250
   pretrain_iters: 500
   train_freq: 1
-  predictor_epochs: 1
+  predictor_epochs: 4
   buffer_ratio: 0.1
   pre_trian: False
   lr: 0.0001
@@ -13,27 +15,28 @@ ENV_PARAMETERS:
   num_frames: 2
   num_agent: 7
   ep_length: 600
-  num_envs: 32
-  num_cpus: 32
+  num_envs: 8
+  num_cpus: 8
 
 RL_PARAMETERS:
   learner: "dqn"
   spawn_speed: "fast"
   learning_rate: 0.00025
-  batch_size: 32*32
+  batch_size: 32
   tau: 0.01
   gamma: 0.99
   train_freq: 4
   exploration_fraction: 0.3
-  learning_starts: 5e5
-  buffer_size: 1e6
+  learning_starts: 50000
+  buffer_size: 700
   exploration_final_eps: 0.1
+  policy: CnnPolicy
 
 EXPERIMENT_PARAMETERS:
   penalty: False
   metric: "Efficiency"
   experiment: "prm"
-  independent: Flase
+  independent: False
   from_model: False
   freeze_rp: False
   run_name_template: "{experiment}-{metric}-{spawn_speed}"
