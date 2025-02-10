@@ -21,7 +21,7 @@ MAP = {"small": SMALL_HARVEST_MAP,
 
 
 class HarvestCommonsEnv(MapEnv):
-
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
     def __init__(self, ascii_map=HARVEST_MAP, num_agents=1, render=False, agent_view_range=HARVEST_DEFAULT_VIEW_SIZE,
                  color_map=None, ep_length=600, spawn_speed='slow', metric="Efficiency"):
         self.ep_length = ep_length

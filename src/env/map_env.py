@@ -146,10 +146,11 @@ class MapEnv(gymnasium.Env):
             rgb_arr = self.rotate_view(agent.orientation, rgb_arr)
             # observations[agent.agent_id] = rgb_arr
             observations[agent.agent_id] = {"curr_obs": rgb_arr}
-            rewards[agent.agent_id] = agent.compute_reward()
+            rewards[agent.agent_id], aip = agent.compute_reward() # aip-> appeals in proximity
             dones[agent.agent_id] = agent.get_done()
             infos[agent.agent_id] = {"state": self.state,
-                                     'true_reward': rewards[agent.agent_id]}
+                                     'true_reward': rewards[agent.agent_id],
+                                     "aip": aip}
         dones["__all__"] = np.any(list(dones.values()))
         return observations, rewards, dones, infos
 
@@ -351,7 +352,6 @@ class MapEnv(gymnasium.Env):
         # lists of moves and their corresponding agents
         move_slots = []
         agent_to_slot = []
-
         for slot in reserved_slots:
             row, col = slot[0], slot[1]
             if slot[2] == 'P':

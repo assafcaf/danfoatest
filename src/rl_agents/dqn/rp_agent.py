@@ -82,7 +82,6 @@ class DQNRP(DQN):
 
             # Rescale and perform action
             new_obs, expiriment_rewards, dones, infos = env.step(actions)
-            real_rewards = np.array([f["true_reward"] for f in infos])
             # reward predictor
             pred_rewards = self.predictor.predict(obs_as_tensor(self._last_obs, self.policy.device),
                                     th.tensor(actions).to(self.policy.device)).squeeze()

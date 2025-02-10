@@ -10,9 +10,11 @@ class EpisodeData(NamedTuple):
     actions: np.ndarray
     rewards: np.ndarray
     true_rewards: np.ndarray
+    aip:np.array
 
 class RLWithRewardPredictorBuffer(ReplayBuffer):
     experiment_rewards: np.array
+    aip: np.array
     def __init__(self,
                 buffer_size,
                 observation_space,
@@ -36,7 +38,8 @@ class RLWithRewardPredictorBuffer(ReplayBuffer):
         self.episode_length = episode_length
         self.episode_indices = []  # Track episode start indices
         self.true_rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
-   
+        self.aip = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
+
     def add(
         self,
         obs: np.ndarray,
@@ -46,10 +49,12 @@ class RLWithRewardPredictorBuffer(ReplayBuffer):
         done: np.ndarray,
         infos: list[dict[str, Any]],
     ) -> None:
-        """Add a transition and track episode indices."""
+
+        
         if len(self.episode_indices) == 0 or self.episode_indices[-1] + self.episode_length <= self.pos:
             self.episode_indices.append(self.pos)
-
+          # Reshape needed when using multiple envs with discrete observations
+        # as numpy cannot broadcast (n_discrete,) to (n_discrete, 1)
         if isinstance(self.observation_space, spaces.Discrete):
             obs = obs.reshape((self.n_envs, *self.obs_shape))
             next_obs = next_obs.reshape((self.n_envs, *self.obs_shape))
@@ -69,6 +74,8 @@ class RLWithRewardPredictorBuffer(ReplayBuffer):
         self.rewards[self.pos] = np.array(reward)
         self.dones[self.pos] = np.array(done)
         self.true_rewards[self.pos] = np.array([info.get("true_reward", False) for info in infos])
+        self.aip[self.pos] = np.array([info.get("aip", False) for info in infos])
+        
         if self.handle_timeout_termination:
             self.timeouts[self.pos] = np.array([info.get("TimeLimit.truncated", False) for info in infos])
 
@@ -76,23 +83,27 @@ class RLWithRewardPredictorBuffer(ReplayBuffer):
         if self.pos == self.buffer_size:
             self.full = True
             self.pos = 0
-        
-    def get_episodes(self, n_episodes=1):
+
+        """Add a transition and track episode indices."""
+
+            
+    def get_episodes(self, batch_size=1):
         """Retrieve full episodes from the buffer."""
         ##TODO: cheack if realy need to stroe experiment_rewards
-        sampled_indices = np.random.choice(len(self.episode_indices), size=n_episodes, replace=False)
-        observations = np.zeros((self.n_envs*n_episodes, self.episode_length, *self.observation_space.shape))
-        actions = np.zeros((self.n_envs*n_episodes, self.episode_length))
-        rewards = np.zeros((self.n_envs*n_episodes, self.episode_length))
-        true_rewards = np.zeros((self.n_envs*n_episodes, self.episode_length))
-        env_cnt = 0
-        for idx in sampled_indices:
-            start_idx = self.episode_indices[idx]
+        ep_indices = np.random.choice(len(self.episode_indices), size=batch_size, replace=True)
+        env_indices = np.random.choice(self.n_envs, size=batch_size, replace=True)
+        observations = np.zeros((batch_size, self.episode_length, *self.observation_space.shape))
+        actions = np.zeros((batch_size, self.episode_length))
+        rewards = np.zeros((batch_size, self.episode_length))
+        true_rewards = np.zeros((batch_size, self.episode_length))
+        aip = np.zeros((batch_size, self.episode_length))
+        for i, (ep_idx, env_idx) in enumerate(zip(ep_indices, env_indices)):
+            start_idx = self.episode_indices[ep_idx]
             end_idx = start_idx + self.episode_length
-            observations[env_cnt:env_cnt+self.n_envs] = np.swapaxes(self.observations[start_idx:end_idx], 0, 1)
-            actions[env_cnt:env_cnt+self.n_envs] = np.swapaxes(self.actions[start_idx:end_idx], 0, 1).squeeze()
-            rewards[env_cnt:env_cnt+self.n_envs] = np.swapaxes(self.rewards[start_idx:end_idx], 0, 1)
-            true_rewards[env_cnt:env_cnt+self.n_envs] = np.swapaxes(self.true_rewards[start_idx:end_idx], 0, 1)
+            observations[i] = self.observations[start_idx:end_idx, env_idx]
+            actions[i] = self.actions[start_idx:end_idx, env_idx].squeeze()
+            rewards[i] = self.rewards[start_idx:end_idx, env_idx]
+            true_rewards[i] = self.true_rewards[start_idx:end_idx, env_idx]
+            aip[i] = self.aip[start_idx:end_idx, env_idx]
+        return EpisodeData(observations, actions, rewards, true_rewards, aip)
 
-            env_cnt += self.n_envs
-        return EpisodeData(observations, actions, rewards, true_rewards)

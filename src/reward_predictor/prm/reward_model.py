@@ -80,22 +80,21 @@ class ComparisonRewardPredictor(RewardModel):
         # left
         left_obs = torch.tensor(batch.observations[:l]).to(self.device).float()
         left_acts = torch.tensor(batch.actions[:l]).to(self.device)
-
+        left_r = batch.true_rewards[:l].sum(axis=1)
+        
         # rights
         right_obs = torch.tensor(batch.observations[l:]).to(self.device).float()
         right_acts = torch.tensor(batch.actions[l:]).to(self.device)
-
+        right_r = batch.true_rewards[l:].sum(axis=1)
         # lable
-        left_r = batch.true_rewards[:l].sum(axis=0)
-        right_r = batch.true_rewards[l:].sum(axis=0)
         labels =  torch.tensor(left_r < right_r).to(self.device).long()
 
-        return left_obs, left_acts, right_obs, right_acts, labels
+        return left_obs, left_acts, right_obs, right_acts, labels, batch.aip
     
     def train_predictor(self, batch, verbose=False):
         """Train the reward predictor network."""
         losses = []
-        left_obs, left_acts, right_obs, right_acts, labels = self.transform_batch(batch)
+        left_obs, left_acts, right_obs, right_acts, labels, aip = self.transform_batch(batch)
         for _ in range(self.epochs):
             loss, predicted_rewards = self._train_step(left_obs, left_acts, right_obs, right_acts, labels)
             losses.append(loss.item())
@@ -104,7 +103,7 @@ class ComparisonRewardPredictor(RewardModel):
         if verbose:
             print(f"[Reward Predictor] Training completed. Avg loss: {avg_loss}")
         
-        log_dict = self.log_step(batch, predicted_rewards, avg_loss)
+        log_dict = self.log_step(batch, predicted_rewards, avg_loss, aip)
         torch.cuda.empty_cache()
         return log_dict
 
@@ -119,8 +118,8 @@ class ComparisonRewardPredictor(RewardModel):
         """
         # TODO: make this work with pytorch
         
-        batchsize = (obs_segments).shape[0]
-        segment_length = (obs_segments).shape[1]
+        batchsize = obs_segments.shape[0]
+        segment_length = obs_segments.shape[1]
 
         # Temporarily chop up segments into individual observations and actions
         # TODO: makesure its works fine without transpose (observation_space)
@@ -139,7 +138,7 @@ class ComparisonRewardPredictor(RewardModel):
         rewards_left = self._predict_rewards(left_obs, left_acts)
         rewards_right = self._predict_rewards(right_obs, right_acts)
 
-        logits = torch.cat([rewards_left.sum(dim=0, keepdim=True), rewards_right.sum(dim=0, keepdim=True)], dim=0).transpose(1, 0)
+        logits = torch.stack([rewards_left.sum(axis=1), rewards_right.sum(axis=1)]).transpose(-1, 0)
         loss = self.loss(logits, labels)
 
         self.optimizer.zero_grad()
@@ -151,20 +150,19 @@ class ComparisonRewardPredictor(RewardModel):
     def save_model_checkpoint(self, path):
         torch.save(self.model.state_dict(), f"{path}/predictor_{self.id_}.pth")
 
-    def log_step(self, batch, predicted_rewards, loss):
+    def log_step(self, batch, predicted_rewards, loss, aip):
         # predicted rewards for eaten and uneaten apples
 
         a, b = batch.rewards.shape
         rewards = batch.true_rewards.reshape(a * b)
         actions = batch.actions.reshape(a * b)
-
+        aip = batch.aip.reshape(a * b)
         positive_reward_mean = np.nanmean(predicted_rewards[rewards==1])
         positive_reward_std = np.nanstd(predicted_rewards[rewards==1])
 
         zero_reward_mean = np.nanmean(predicted_rewards[rewards==0])
         zero_reward_std = np.nanstd(predicted_rewards[rewards==0])
         correlations = corrcoef(rewards, predicted_rewards)
-
 
         # predicted rewards per action
         action_reward_map = {
@@ -175,9 +173,15 @@ class ComparisonRewardPredictor(RewardModel):
             'on_action/move right':np.nanmean(predicted_rewards[actions==1]),
             'on_action/move up': np.nanmean(predicted_rewards[actions==2]),
             'on_action/move down':np.nanmean(predicted_rewards[actions==3]),
-            'on_action/turn': np.nanmean(predicted_rewards[(actions == 5) | (actions == 6)])
-,
+            'on_action/stay':np.nanmean(predicted_rewards[actions==4]),
+            'on_action/turn': np.nanmean(predicted_rewards[(actions == 5) | (actions == 6)]),
             'on_action/fire': np.nanmean(predicted_rewards[actions==7]),
+            
+
+            'predicter rewards by appeals in porximity/0': np.nanmean(predicted_rewards[(rewards==1) & (aip==0)]),
+            'predicter rewards by appeals in porximity/1': np.nanmean(predicted_rewards[(rewards==1) & (aip==1)]),
+            'predicter rewards by appeals in porximity/2': np.nanmean(predicted_rewards[(rewards==1) & (aip==2)]),
+            'predicter rewards by appeals in porximity/3+': np.nanmean(predicted_rewards[(rewards==1) & (aip>=3)]),
 
             # on apples eaten or not
             "outcome_avg/apple_eaten": positive_reward_mean,

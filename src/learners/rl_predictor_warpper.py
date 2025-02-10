@@ -34,8 +34,6 @@ class RLWithRewardPredictor:
         self.total_episodes = 0
         self.training_thread = None
         self.rp_learning_starts = rp_learning_starts
-        if self.parallel_agents:
-            self.pool = mp.Pool(processes=mp.cpu_count())
 
     def learn(self,
             total_timesteps,
@@ -77,39 +75,24 @@ class RLWithRewardPredictor:
             self.total_episodes += rollout.n_episodes//self.rl_agent.env.num_envs
             # Train the reward predictor periodically
             if self.total_episodes > self.rp_learning_starts and self.total_episodes > ep_cnt:
-                batch = self.rl_agent.replay_buffer.get_episodes(n_episodes=8)
-                if self.async_rp_training:
-                    self._train_reward_predictor_async(batch=batch)
-                else:
-                    rp_log_dict = self.train_reward_predictor(batch=batch)
-                    for k, v in rp_log_dict.items():
-                        self.rl_agent.logger.record(k, v)
+                batch = self.rl_agent.replay_buffer.get_episodes(batch_size=self.batch_size)
+                rp_log_dict = self.train_reward_predictor(batch=batch)
+                for k, v in rp_log_dict.items():
+                    self.rl_agent.logger.record(k, v)
             # Train the RL agent
             gradient_steps = self.rl_agent.gradient_steps if self.rl_agent.gradient_steps >= 0 else rollout.episode_timesteps
             ep_cnt = self.total_episodes
             # Special case when the user passes `gradient_steps=0`
             if gradient_steps > 0:
                 self.rl_agent.train(batch_size=self.rl_agent.batch_size, gradient_steps=gradient_steps)
-
         callback.on_training_end()
         return self
     
-    def _train_reward_predictor_async(self, batch):
-        """
-        Train the reward predictor asynchronously in a separate thread.
-        """
-        if self.training_thread is None or not self.training_thread.is_alive():
-            self.training_thread = threading.Thread(target=self.train_reward_predictor, daemon=True, args=batch)
-            self.training_thread.start()
-
     def train_reward_predictor(self, batch):
         """
         Train the reward predictor network, with parallelization if enabled.
         """
-        if self.parallel_agents:
-            avg_loss = sum(self.pool.map(self._train_single_predictor, self.reward_predictor.predictors)) / len(self.reward_predictor.predictors)
-        else:
-            rp_log_dict = self.reward_predictor.train_predictor(batch=batch, verbose=False)
+        rp_log_dict = self.reward_predictor.train_predictor(batch=batch, verbose=False)
         return rp_log_dict
 
     def _train_single_predictor(self, predictor):

@@ -7,7 +7,8 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from callbacks import SingleAgentCallback
 from configs import Config
 from reward_predictor import AgentLoggerSb3, LabelAnnealer, function_wrapper, ComparisonRewardPredictor
-from learners import RLWithRewardPredictor, RLWithRewardPredictorBuffer
+from learners import RLWithRewardPredictor
+from buffers import RLWithRewardPredictorBuffer
 from env import parallel_env
 from rl_agents import DQN, IndependentDQN, PPO, CnnFeatureExtractor, DQNRP
 
@@ -49,7 +50,8 @@ class BaseRunner:
         dir_name = self.config.EXPERIMENT_PARAMETERS.run_name_template.format(
             experiment=self.experiment,
             metric=self.config.EXPERIMENT_PARAMETERS.metric,
-            spawn_speed=self.config.RL_PARAMETERS.spawn_speed
+            spawn_speed=self.config.RL_PARAMETERS.spawn_speed,
+            num_agents=self.config.ENV_PARAMETERS.num_agent
         )
         self.config.EXPERIMENT_PARAMETERS.run_name_template = dir_name
         log_dir = os.path.join(self.log_dir, dir_name, "run_" + datetime.now().strftime("%Y%m%d%H%M%S"))
@@ -57,8 +59,7 @@ class BaseRunner:
         eval_env = self.setup_environment(self.config, 1)
         agent = self.setup_agent(vec_env, agent_fn, log_dir)
 
-        render_frequency = 2000 if self.config.RL_PARAMETERS.learner == "dqn" else 20
-
+        render_frequency = self.config.RL_PARAMETERS.render_frequency*self.config.ENV_PARAMETERS.ep_length
         if self.config.RL_PARAMETERS.learner == "ppo":
             log_interval = 1
         else:
@@ -122,20 +123,30 @@ class BaseRunner:
         """Runs the experiment."""
 
         agent, callback, log_interval = self.init_experiment()
-
+        total_timesteps = (self.config.EXPERIMENT_PARAMETERS.total_timesteps
+                           *self.config.ENV_PARAMETERS.ep_length
+                           *self.config.ENV_PARAMETERS.num_envs)
         print("Training starting...")
-        agent.learn(total_timesteps=self.config.EXPERIMENT_PARAMETERS.total_timesteps,
+        agent.learn(total_timesteps=total_timesteps,
                     log_interval=log_interval,
                     callback=callback,
                     progress_bar=True)
         print("Finished training.")
+        exit()
 
     def compute_buffer_size(self):
+        
         buffer_size = self.config.RL_PARAMETERS.buffer_size
         num_envs = self.config.ENV_PARAMETERS.num_envs
         num_agent = self.config.ENV_PARAMETERS.num_agent
         ep_length = self.config.ENV_PARAMETERS.ep_length
-        return buffer_size*num_envs*num_agent*ep_length
+        
+        # if not independent, the buffer size multiplies by the number of agents
+        if not self.config.EXPERIMENT_PARAMETERS.independent: 
+            buffer_size = buffer_size*num_envs*num_agent*ep_length
+        else: # if independent, the buffer size not multiplied by the number of agents
+            buffer_size = buffer_size*num_envs*ep_length
+        return buffer_size
 
     @staticmethod
     def parse_args():
@@ -285,7 +296,7 @@ class PRMRunner(BaseRunner):
                                       train_rp_freq=train_rp_freq,
                                       async_rp_training=False,
                                       parallel_agents=False,
-                                      batch_size=self.config.RP_PARAMETERS.batch_size)
+                                      batch_size=self.config.RP_PARAMETERS.batch_size*2)
 
         return agent   
 
