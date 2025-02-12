@@ -1,1 +1,1 @@
-from .buffers import RLWithRewardPredictorBuffer
+from .buffers import PRMShardReplayBuffer

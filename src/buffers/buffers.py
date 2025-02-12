@@ -8,11 +8,11 @@ from gymnasium import spaces
 class EpisodeData(NamedTuple):
     observations: np.ndarray
     actions: np.ndarray
-    rewards: np.ndarray
-    true_rewards: np.ndarray
+    experiment_rewards: np.ndarray
+    true_rewards:np.ndarray
     aip:np.array
 
-class RLWithRewardPredictorBuffer(ReplayBuffer):
+class PRMShardReplayBuffer(ReplayBuffer):
     experiment_rewards: np.array
     aip: np.array
     def __init__(self,
@@ -37,15 +37,21 @@ class RLWithRewardPredictorBuffer(ReplayBuffer):
                         **kwargs)
         self.episode_length = episode_length
         self.episode_indices = []  # Track episode start indices
+        self.experiment_rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.true_rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.aip = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
 
+    @property
+    def predicted_rewards(self):
+        return self.rewards
+    
     def add(
         self,
         obs: np.ndarray,
         next_obs: np.ndarray,
         action: np.ndarray,
         reward: np.ndarray,
+        experiment_rewards: np.ndarray,
         done: np.ndarray,
         infos: list[dict[str, Any]],
     ) -> None:
@@ -71,9 +77,10 @@ class RLWithRewardPredictorBuffer(ReplayBuffer):
             self.next_observations[self.pos] = np.array(next_obs)
 
         self.actions[self.pos] = np.array(action)
-        self.rewards[self.pos] = np.array(reward)
-        self.dones[self.pos] = np.array(done)
+        self.predicted_rewards[self.pos] = np.array(reward)
+        self.experiment_rewards[self.pos] = np.array(experiment_rewards)
         self.true_rewards[self.pos] = np.array([info.get("true_reward", False) for info in infos])
+        self.dones[self.pos] = np.array(done)
         self.aip[self.pos] = np.array([info.get("aip", False) for info in infos])
         
         if self.handle_timeout_termination:
@@ -84,9 +91,6 @@ class RLWithRewardPredictorBuffer(ReplayBuffer):
             self.full = True
             self.pos = 0
 
-        """Add a transition and track episode indices."""
-
-            
     def get_episodes(self, batch_size=1):
         """Retrieve full episodes from the buffer."""
         ##TODO: cheack if realy need to stroe experiment_rewards
@@ -94,16 +98,17 @@ class RLWithRewardPredictorBuffer(ReplayBuffer):
         env_indices = np.random.choice(self.n_envs, size=batch_size, replace=True)
         observations = np.zeros((batch_size, self.episode_length, *self.observation_space.shape))
         actions = np.zeros((batch_size, self.episode_length))
-        rewards = np.zeros((batch_size, self.episode_length))
+        experiment_rewards = np.zeros((batch_size, self.episode_length))
         true_rewards = np.zeros((batch_size, self.episode_length))
+
         aip = np.zeros((batch_size, self.episode_length))
         for i, (ep_idx, env_idx) in enumerate(zip(ep_indices, env_indices)):
             start_idx = self.episode_indices[ep_idx]
             end_idx = start_idx + self.episode_length
             observations[i] = self.observations[start_idx:end_idx, env_idx]
             actions[i] = self.actions[start_idx:end_idx, env_idx].squeeze()
-            rewards[i] = self.rewards[start_idx:end_idx, env_idx]
+            experiment_rewards[i] = self.experiment_rewards[start_idx:end_idx, env_idx]
             true_rewards[i] = self.true_rewards[start_idx:end_idx, env_idx]
             aip[i] = self.aip[start_idx:end_idx, env_idx]
-        return EpisodeData(observations, actions, rewards, true_rewards, aip)
+        return EpisodeData(observations, actions, experiment_rewards, true_rewards, aip)
 

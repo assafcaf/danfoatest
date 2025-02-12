@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
-import time
+from copy import deepcopy
 import numpy as np
 import torch as th
 from stable_baselines3 import DQN as sb3_DQN
@@ -99,7 +99,14 @@ class DQNRP(DQN):
             self._update_info_buffer(infos, dones)
 
             # Store data in replay buffer (normalized action and unnormalized observation)
-            self._store_transition(replay_buffer, buffer_actions, new_obs, pred_rewards, dones, infos)
+            self._store_transition(
+                replay_buffer,
+                buffer_actions,
+                new_obs,
+                pred_rewards,
+                expiriment_rewards,
+                dones,
+                infos)
 
             self._update_current_progress_remaining(self.num_timesteps, self._total_timesteps)
 
@@ -126,3 +133,71 @@ class DQNRP(DQN):
         callback.on_rollout_end()
 
         return RolloutReturn(num_collected_steps * env.num_envs, num_collected_episodes, continue_training)
+
+
+    def _store_transition(
+        self,
+        replay_buffer: ReplayBuffer,
+        buffer_action: np.ndarray,
+        new_obs: Union[np.ndarray, Dict[str, np.ndarray]],
+        reward: np.ndarray,
+        expiriment_rewards: np.ndarray,
+        dones: np.ndarray,
+        infos: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Store transition in the replay buffer.
+        We store the normalized action and the unnormalized observation.
+        It also handles terminal observations (because VecEnv resets automatically).
+
+        :param replay_buffer: Replay buffer object where to store the transition.
+        :param buffer_action: normalized action
+        :param new_obs: next observation in the current episode
+            or first observation of the episode (when dones is True)
+        :param reward: reward for the current transition
+        :param dones: Termination signal
+        :param infos: List of additional information about the transition.
+            It may contain the terminal observations and information about timeout.
+        """
+        # Store only the unnormalized version
+        if self._vec_normalize_env is not None:
+            new_obs_ = self._vec_normalize_env.get_original_obs()
+            reward_ = self._vec_normalize_env.get_original_reward()
+        else:
+            # Avoid changing the original ones
+            self._last_original_obs, new_obs_, reward_ = self._last_obs, new_obs, reward
+
+        # Avoid modification by reference
+        next_obs = deepcopy(new_obs_)
+        # As the VecEnv resets automatically, new_obs is already the
+        # first observation of the next episode
+        for i, done in enumerate(dones):
+            if done and infos[i].get("terminal_observation") is not None:
+                if isinstance(next_obs, dict):
+                    next_obs_ = infos[i]["terminal_observation"]
+                    # VecNormalize normalizes the terminal observation
+                    if self._vec_normalize_env is not None:
+                        next_obs_ = self._vec_normalize_env.unnormalize_obs(next_obs_)
+                    # Replace next obs for the correct envs
+                    for key in next_obs.keys():
+                        next_obs[key][i] = next_obs_[key]
+                else:
+                    next_obs[i] = infos[i]["terminal_observation"]
+                    # VecNormalize normalizes the terminal observation
+                    if self._vec_normalize_env is not None:
+                        next_obs[i] = self._vec_normalize_env.unnormalize_obs(next_obs[i, :])
+
+        replay_buffer.add(
+            self._last_original_obs,  # type: ignore[arg-type]
+            next_obs,  # type: ignore[arg-type]
+            buffer_action,
+            reward_,
+            expiriment_rewards,
+            dones,
+            infos,
+        )
+
+        self._last_obs = new_obs
+        # Save the unnormalized observation
+        if self._vec_normalize_env is not None:
+            self._last_original_obs = new_obs_

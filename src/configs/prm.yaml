@@ -1,5 +1,5 @@
 RP_PARAMETERS:
-  learning_starts: 10
+  learning_starts: 2
   batch_size: 128
   train_freq: 1
   predictor_epochs: 4
@@ -29,12 +29,12 @@ RL_PARAMETERS:
   render_frequency: 20
 
 EXPERIMENT_PARAMETERS:
-  penalty: False
+  penalty: True
   metric: "Efficiency*Peace"
   experiment: "prm"
   independent: False 
   run_name_template: "{experiment}-{metric}-{spawn_speed}-{num_agents}_agents"
-  gpu_id: 0
+  gpu_id: 1
   debug: False
   total_timesteps: 35_000
     

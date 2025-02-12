@@ -77,24 +77,25 @@ class ComparisonRewardPredictor(RewardModel):
         obs.shape-> envs*ep_length*obs_shape"""
         l = batch.observations.shape[0]//2
 
-        # left
+        # left segments
         left_obs = torch.tensor(batch.observations[:l]).to(self.device).float()
         left_acts = torch.tensor(batch.actions[:l]).to(self.device)
-        left_r = batch.true_rewards[:l].sum(axis=1)
+        left_r = batch.experiment_rewards[:l].sum(axis=1)
         
-        # rights
+        # rights segments
         right_obs = torch.tensor(batch.observations[l:]).to(self.device).float()
         right_acts = torch.tensor(batch.actions[l:]).to(self.device)
-        right_r = batch.true_rewards[l:].sum(axis=1)
-        # lable
+        right_r = batch.experiment_rewards[l:].sum(axis=1)
+
+        # lables
         labels =  torch.tensor(left_r < right_r).to(self.device).long()
 
-        return left_obs, left_acts, right_obs, right_acts, labels, batch.aip
+        return left_obs, left_acts, right_obs, right_acts, labels
     
     def train_predictor(self, batch, verbose=False):
         """Train the reward predictor network."""
         losses = []
-        left_obs, left_acts, right_obs, right_acts, labels, aip = self.transform_batch(batch)
+        left_obs, left_acts, right_obs, right_acts, labels = self.transform_batch(batch)
         for _ in range(self.epochs):
             loss, predicted_rewards = self._train_step(left_obs, left_acts, right_obs, right_acts, labels)
             losses.append(loss.item())
@@ -103,11 +104,11 @@ class ComparisonRewardPredictor(RewardModel):
         if verbose:
             print(f"[Reward Predictor] Training completed. Avg loss: {avg_loss}")
         
-        log_dict = self.log_step(batch, predicted_rewards, avg_loss, aip)
+        log_dict = self.log_step(batch, predicted_rewards, avg_loss)
         torch.cuda.empty_cache()
         return log_dict
 
-    def _predict_rewards(self, obs_segments, act_segments):
+    def predict_batch(self, obs_segments, act_segments):
         """
         :param obs_segments: tensor with shape = (batch_size, segment_length) + observation_space
         :param act_segments: tensor with shape = (batch_size, segment_length) + act_shape
@@ -135,10 +136,10 @@ class ComparisonRewardPredictor(RewardModel):
    
     def _train_step(self, left_obs, left_acts, right_obs, right_acts, labels):
 
-        rewards_left = self._predict_rewards(left_obs, left_acts)
-        rewards_right = self._predict_rewards(right_obs, right_acts)
+        rewards_left = self.predict_batch(left_obs, left_acts)
+        rewards_right = self.predict_batch(right_obs, right_acts)
 
-        logits = torch.stack([rewards_left.sum(axis=1), rewards_right.sum(axis=1)]).transpose(-1, 0)
+        logits = torch.stack([rewards_left.sum(axis=1), rewards_right.sum(axis=1)], dim=1)
         loss = self.loss(logits, labels)
 
         self.optimizer.zero_grad()
@@ -150,13 +151,12 @@ class ComparisonRewardPredictor(RewardModel):
     def save_model_checkpoint(self, path):
         torch.save(self.model.state_dict(), f"{path}/predictor_{self.id_}.pth")
 
-    def log_step(self, batch, predicted_rewards, loss, aip):
+    def log_step(self, batch, predicted_rewards, loss):
         # predicted rewards for eaten and uneaten apples
 
-        a, b = batch.rewards.shape
-        rewards = batch.true_rewards.reshape(a * b)
-        actions = batch.actions.reshape(a * b)
-        aip = batch.aip.reshape(a * b)
+        rewards = batch.true_rewards.reshape(-1)
+        actions = batch.actions.reshape(-1)
+        aip = batch.aip.reshape(-1)
         positive_reward_mean = np.nanmean(predicted_rewards[rewards==1])
         positive_reward_std = np.nanstd(predicted_rewards[rewards==1])
 

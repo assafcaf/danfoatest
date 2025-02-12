@@ -8,7 +8,7 @@ from callbacks import SingleAgentCallback
 from configs import Config
 from reward_predictor import AgentLoggerSb3, LabelAnnealer, function_wrapper, ComparisonRewardPredictor
 from learners import RLWithRewardPredictor
-from buffers import RLWithRewardPredictorBuffer
+from buffers import PRMShardReplayBuffer
 from env import parallel_env
 from rl_agents import DQN, IndependentDQN, PPO, CnnFeatureExtractor, DQNRP
 
@@ -285,7 +285,7 @@ class PRMRunner(BaseRunner):
                             predictor=reward_predictor,
                             device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
                             policy_kwargs=policy_kwargs,
-                            replay_buffer_class=RLWithRewardPredictorBuffer,
+                            replay_buffer_class=PRMShardReplayBuffer,
                             replay_buffer_kwargs={"episode_length": self.config.ENV_PARAMETERS.ep_length},
                             **self.learner_kwargs
                     )

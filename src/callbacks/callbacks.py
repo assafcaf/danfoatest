@@ -74,7 +74,7 @@ class SingleAgentCallback(BaseCallback):
         return np.array(rewards).sum(), frames
 
     def _on_rollout_end(self) -> None:
-        if self.iterations_ % self.render_frequency == 0:
+        if (self.iterations_ % self.render_frequency == 0) and self.iterations_ > 0:
             score, frames = self._play(render=True)
             file_name = self.logger.dir + f"/iteration_{self.iterations_+1}_score_{int(score)}.mp4"
             self.save_video(file_name, frames)
