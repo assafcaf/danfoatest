@@ -1,1 +1,2 @@
-from .rl_predictor_warpper import RLWithRewardPredictor
+from .collective_rlrp_learner import CollectiveRLRPLearner
+from .independent_rlrp_learner import IndependentRLRPLearner

@@ -17,7 +17,7 @@ class MlpHead(nn.Module):
         self.double()
         self.embed = nn.Embedding(n_actions, emb_dim, max_norm=1)
         self.mlp = nn.Sequential(
-            nn.Linear(input_dim+emb_dim, h_size),
+            nn.Linear(input_dim+(emb_dim*num_outputs), h_size),
             nn.LeakyReLU(),
             nn.Linear(h_size, num_outputs)
         )
@@ -123,7 +123,7 @@ class CnnNetwork(MlpHead):
             # Need to add channels
             obs = torch.expand_dims(obs, axis=-1)
             
-        emb = self.embed(act.view(-1).long())
         x = self.linear(self.back_bone(obs))
+        emb = self.embed(act.view(-1).long()).view(x.shape[0], -1)
         x = torch.cat([x, emb], axis=1)
         return self.mlp(x)

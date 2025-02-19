@@ -13,7 +13,6 @@ def parallel_env(**ssd_args):
 
 
 class ssd_parallel_env(ParallelEnv):
-    render_mode = "human"
     def __init__(self, env, ep_length, penalty):
         self.ssd_env = env
         self.ep_length = ep_length
@@ -22,6 +21,7 @@ class ssd_parallel_env(ParallelEnv):
         self.ssd_env.reset()
         self.observation_space = lru_cache(maxsize=None)(lambda agent_id: env.observation_space)
         self.observation_spaces = {agent: env.observation_space for agent in self.possible_agents}
+        self.state_space = self.ssd_env.state_space
         self.action_space = lru_cache(maxsize=None)(lambda agent_id: env.action_space)
         self.action_spaces = {agent: env.action_space for agent in self.possible_agents}
 
@@ -68,6 +68,9 @@ class ssd_parallel_env(ParallelEnv):
             self.agents = [agent for agent in self.agents if not self.dones[agent]]
         return obss, rews, self.dones, self.dones, infos
 
+    def get_full_state(self):
+        return self.ssd_env.state
+    
     def get_images(self):
          self.ssd_env.full_map_to_colors()
     
@@ -79,7 +82,7 @@ class _parallel_env(ssd_parallel_env, EzPickle):
     metadata = {"render.modes": ["human", "rgb_array"],
                 "name": "custom_environment_v0"
                 }
-
+    render_mode = "human"
     def __init__(self, ep_length=600, penalty=False, **ssd_args):
         EzPickle.__init__(self, ep_length, penalty, **ssd_args)
         env = HarvestCommonsEnv(**ssd_args)

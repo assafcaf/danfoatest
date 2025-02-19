@@ -6,11 +6,11 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 # local imports
 from callbacks import SingleAgentCallback
 from configs import Config
-from reward_predictor import AgentLoggerSb3, LabelAnnealer, function_wrapper, ComparisonRewardPredictor
-from learners import RLWithRewardPredictor
-from buffers import PRMShardReplayBuffer
+from reward_predictor import AgentLoggerSb3, RPMRewardPredictor, CRMRewardPredictor
+from learners import CollectiveRLRPLearner, IndependentRLRPLearner
+from buffers import PRMShardReplayBuffer, CRMShardReplayBuffer
 from env import parallel_env
-from rl_agents import DQN, IndependentDQN, PPO, CnnFeatureExtractor, DQNRP
+from rl_agents import DQN, IndependentDQN, PPO, CnnFeatureExtractor, DQNPRM, DQNCRM
 
 import os
 import yaml
@@ -93,8 +93,16 @@ class BaseRunner:
             num_cpus=config.ENV_PARAMETERS.num_cpus,
             base_class="stable_baselines3"
         )
+        env.get_attr = lambda x, y: ["human" for _ in range(env.num_envs)]
         env = VecMonitor(env)
         env = VecTransposeImage(env)
+        
+        # Expose the get_full_state function from the underlying environment
+        if config.EXPERIMENT_PARAMETERS.experiment == "crm":
+            # env.get_full_states = lambda: [e.par_env.env.aec_env.env.env.env.get_full_state() for e in env.venv.venv.venv.vec_envs]
+            # env.state_space = env.venv.venv.venv.vec_envs[0].par_env.env.aec_env.env.env.env.state_space
+            env.get_full_state = env.env_method("get_full_state")
+            env.state_space = env.env_method("state_space")
         return env
 
     def setup_agent(self, vec_env, agent_fn, log_dir):
@@ -231,7 +239,7 @@ class PRMRunner(BaseRunner):
                 self.learner_kwargs["num_agents"] = self.config.ENV_PARAMETERS.num_agent
                 agent_fn = IndependentDQN
             else: 
-                agent_fn = DQNRP
+                agent_fn = DQNPRM
         elif self.config.RL_PARAMETERS.learner == "ppo":
             agent_fn = PPO
         else:
@@ -246,23 +254,19 @@ class PRMRunner(BaseRunner):
 
 
         # Initialize reward predictor
-        predictor = ComparisonRewardPredictor(
+        predictor = RPMRewardPredictor(
             agent_logger=logger,
             observation_space=env.observation_space,
             action_space=env.action_space.n,
             epochs=predictor_epochs,
             device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
             lr=lr,
+            network_kwargs={
+                'h_size': self.config.RP_PARAMETERS.h_size,
+                'emb_dim':self.config.RP_PARAMETERS.emb_dim, 
+                'features_dim': self.config.RP_PARAMETERS.features_dim
+            }
         )
-
-        # Pre-train if necessary
-        # if pre_trian:
-        #     env_factory = function_wrapper(self.setup_environment, self.config, 1)
-        #     predictor.pre_trian(
-        #         make_env=env_factory,
-        #         pretrain_labels=pretrain_labels
-        #     )
-
         return predictor
 
     def setup_loggers(self, log_dir):
@@ -290,7 +294,7 @@ class PRMRunner(BaseRunner):
                             **self.learner_kwargs
                     )
         rl_agent.set_logger(loggers["rl"])
-        agent = RLWithRewardPredictor(rl_agent=rl_agent,
+        agent = CollectiveRLRPLearner(rl_agent=rl_agent,
                                       rp_learning_starts=self.config.RP_PARAMETERS.learning_starts,
                                       reward_predictor=reward_predictor,
                                       train_rp_freq=train_rp_freq,
@@ -300,3 +304,72 @@ class PRMRunner(BaseRunner):
 
         return agent   
 
+class CRMRunner(BaseRunner):
+    def __init__(self, config_path):
+        super().__init__(config_path)
+
+        # Experiment settings
+        self.experiment = self.config.EXPERIMENT_PARAMETERS.experiment
+        self.experiment += '_penalty' if self.config.EXPERIMENT_PARAMETERS.penalty else ""
+        self.log_dir = os.path.join(str(Path(__file__).resolve().parent.parent.parent), "results")
+
+    def init_experiment(self):
+        self.learner_kwargs["num_agents"] = self.config.ENV_PARAMETERS.num_agent
+        agent_fn = DQNCRM
+        return super().init_experiment(agent_fn) 
+
+    def set_up_rp(self, logger, env):
+        """Set up reward predictor and its logging infrastructure."""
+        predictor_epochs = self.config.RP_PARAMETERS.predictor_epochs
+        lr = self.config.RP_PARAMETERS.lr
+
+
+        # Initialize reward predictor
+        predictor = CRMRewardPredictor(
+            agent_logger=logger,
+            num_outputs = self.config.ENV_PARAMETERS.num_agent,
+            observation_space=env.state_space,
+            action_space=env.action_space.n,
+            epochs=predictor_epochs,
+            device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+            lr=lr,
+        )
+        return predictor
+
+    def setup_loggers(self, log_dir):
+        rl_logger = configure(log_dir, ["stdout", "tensorboard", "csv"])
+        rp_loggers = AgentLoggerSb3(rl_logger)
+        loggers = {"rl": [rl_logger],
+                   "rp": [rp_loggers]}
+        return loggers
+
+    def setup_agent(self, vec_env, agent_fn, log_dir):
+        loggers = self.setup_loggers(log_dir)
+        reward_predictor = self.set_up_rp(loggers["rp"], vec_env)
+        train_rp_freq = self.config.RP_PARAMETERS.train_freq*self.config.ENV_PARAMETERS.ep_length
+        policy_kwargs = dict(
+            features_extractor_class=CnnFeatureExtractor,
+            features_extractor_kwargs=dict(features_dim=128),
+        )
+
+        rl_agent = agent_fn(env=vec_env,
+                            predictor=reward_predictor,
+                            device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+                            policy_kwargs=policy_kwargs,
+                            replay_buffer_class=CRMShardReplayBuffer,
+                            replay_buffer_kwargs={"episode_length": self.config.ENV_PARAMETERS.ep_length,
+                                                  "state_space": vec_env.state_space,
+                                                  "n_agents": self.learner_kwargs["num_agents"]
+                                                  },
+                            **self.learner_kwargs
+                    )
+        rl_agent.set_logger(loggers["rl"])
+        agent = IndependentRLRPLearner(rl_agent=rl_agent,
+                                      rp_learning_starts=self.config.RP_PARAMETERS.learning_starts,
+                                      reward_predictor=reward_predictor,
+                                      train_rp_freq=train_rp_freq,
+                                      async_rp_training=False,
+                                      parallel_agents=False,
+                                      batch_size=self.config.RP_PARAMETERS.batch_size*2)
+
+        return agent   

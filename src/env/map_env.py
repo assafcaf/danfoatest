@@ -190,8 +190,6 @@ class MapEnv(gymnasium.Env):
     def agent_pos(self):
         return [agent.get_pos().tolist() for agent in self.agents.values()]
 
-    # This method is just used for testing
-    # FIXME(ev) move into the testing class
     @property
     def test_map(self):
         """Gets a version of the environment map where generic
@@ -281,7 +279,7 @@ class MapEnv(gymnasium.Env):
 
     @property
     def state(self):
-        return self.map_to_colors(self.get_map_with_agents(), full_map=True).astype(np.uint8)
+        return np.transpose(self.map_to_colors(self.get_map_with_agents(), full_map=True).astype(np.uint8), (2, 1, 0))
     
 
     def render(self, filename=None, mod=None):

@@ -1,37 +1,33 @@
-from reward_predictor import parallel_collect_segments,function_wrapper
+
 from env import parallel_env
-import supersuit as ss
 from stable_baselines3.common.vec_env import VecTransposeImage, VecMonitor
-
-
-def parrallel_env(num_envs=1, num_agents=1, num_frames=2, ep_length=600, penalty=False, spawn_speed='slow'):
+import supersuit as ss
+from buffers import CRMShardReplayBuffer
+def setup_environment():
     """Configures the environment."""
     env = parallel_env(
-        num_agents=num_agents,
-        ep_length=ep_length,
-        penalty=penalty,
-        spawn_speed=spawn_speed
+        num_agents=2,
+        ep_length=600,
+        penalty=0,
+        spawn_speed='fast',
+        metric='Efficiency'
     )
     env = ss.observation_lambda_v0(env, lambda x, _: x["curr_obs"], lambda s: s["curr_obs"])
-    env = ss.frame_stack_v1(env, num_frames)
+    env = ss.frame_stack_v1(env, 2)
     env = ss.pettingzoo_env_to_vec_env_v1(env)
     env = ss.concat_vec_envs_v1(
         env,
-        num_vec_envs=num_envs,
-        num_cpus=(num_envs // 4) if (num_envs // 4) > 0 else 1,
+        num_vec_envs=1,
+        num_cpus=1,
         base_class="stable_baselines3"
     )
+    env.get_attr = lambda x, y: ["human" for _ in range(env.num_envs)]
     env = VecMonitor(env)
     env = VecTransposeImage(env)
+    env.get_full_state = lambda: env.env_method("get_full_state")
     return env
 
-
-env_factory = function_wrapper(parrallel_env, num_envs=1, num_agents=1, num_frames=2, ep_length=600)
-paths = parallel_collect_segments(env_factory=env_factory,
-                                    n_desired_segments=8,
-                                    segment_length=600,
-                                    workers=4,
-                                    num_agents=1)
-x=1
-
-
+env = setup_environment()
+env.reset()
+a, b, c, d, e, = env.step([0, 1])
+CRMShardReplayBuffer()

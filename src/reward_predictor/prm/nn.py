@@ -90,16 +90,24 @@ class CnnNetwork(MlpHead):
         self.num_outputs = num_outputs
         # my backbonde
         self.back_bone = nn.Sequential(
-                            nn.Conv2d(observation_space.shape[0], 8, kernel_size=5, stride=1, padding=0),
+                            nn.Conv2d(observation_space.shape[0], 16, kernel_size=5, stride=1, padding=0),
                             nn.ReLU(),
-                            nn.Conv2d(8, 16, kernel_size=3, stride=1, padding=0),
+                            nn.BatchNorm2d(16),
+                            nn.Dropout2d(0.2),
+                            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=0),
                             nn.ReLU(),
+                            nn.BatchNorm2d(16),
+                            nn.Dropout2d(0.2),
                             nn.Flatten(),
                     )
         
         with torch.no_grad():
             n_flatten = self.back_bone(torch.as_tensor(observation_space.sample()[None]).float()).shape[1]
-        self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
+        self.linear = nn.Sequential(
+            nn.LayerNorm(n_flatten),
+            nn.Linear(n_flatten, features_dim),
+            nn.ReLU()
+        )
         self.float()
     
     def copy(self):

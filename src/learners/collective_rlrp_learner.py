@@ -2,7 +2,7 @@ import threading
 import time
 import torch.multiprocessing as mp
 
-class RLWithRewardPredictor:
+class CollectiveRLRPLearner:
     """
     Wrapper class that integrates a reinforcement learning agent (DQNRP) and a reward prediction network,
     handling asynchronous reward predictor training with multi-agent parallelization.
@@ -75,8 +75,7 @@ class RLWithRewardPredictor:
             self.total_episodes += rollout.n_episodes//self.rl_agent.env.num_envs
             # Train the reward predictor periodically
             if self.total_episodes > self.rp_learning_starts and self.total_episodes > ep_cnt:
-                batch = self.rl_agent.replay_buffer.get_episodes(batch_size=self.batch_size)
-                rp_log_dict = self.train_reward_predictor(batch=batch)
+                rp_log_dict = self.train_reward_predictor()
                 for k, v in rp_log_dict.items():
                     self.rl_agent.logger.record(k, v)
             # Train the RL agent
@@ -88,11 +87,11 @@ class RLWithRewardPredictor:
         callback.on_training_end()
         return self
     
-    def train_reward_predictor(self, batch):
+    def train_reward_predictor(self):
         """
         Train the reward predictor network, with parallelization if enabled.
         """
-        rp_log_dict = self.reward_predictor.train_predictor(batch=batch, verbose=False)
+        rp_log_dict = self.reward_predictor.train_predictor(replay_buffer=self.rl_agent.replay_buffer, batch_size=self.batch_size, verbose=False)
         return rp_log_dict
 
     def _train_single_predictor(self, predictor):

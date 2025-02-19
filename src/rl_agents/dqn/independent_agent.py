@@ -279,13 +279,13 @@ class IndependentDQN(DQN):
         super().set_logger(logger)
     
     def predict(self, observation, state=None, episode_start=None, deterministic=False):
-            actions = np.zeros((self.num_envs * self.num_agents))
-            for i, agent in enumerate(self.agents):
-                ac, _ = agent.predict(
-                    observation[i::self.num_agents],
-                    state,
-                    episode_start,
-                    deterministic
-                )
-                actions[i::self.num_agents] = ac
-            return actions, None
+        actions = np.zeros((self.num_envs * self.num_agents))
+        for i, agent in enumerate(self.agents):
+            ac, _ = agent.predict(
+                observation[i::self.num_agents],
+                state,
+                episode_start,
+                deterministic
+            )
+            actions[i::self.num_agents] = ac
+        return actions, None

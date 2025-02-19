@@ -92,12 +92,17 @@ class ComparisonRewardPredictor(RewardModel):
 
         return left_obs, left_acts, right_obs, right_acts, labels
     
-    def train_predictor(self, batch, verbose=False):
+    def train_predictor(self, replay_buffer, batch_size, verbose=False):
         """Train the reward predictor network."""
         losses = []
-        left_obs, left_acts, right_obs, right_acts, labels = self.transform_batch(batch)
+        batch = None
+        predicted_rewards = None
         for _ in range(self.epochs):
-            loss, predicted_rewards = self._train_step(left_obs, left_acts, right_obs, right_acts, labels)
+            batch_ = replay_buffer.get_episodes(batch_size)
+            batch = batch + batch_ if batch is not None else batch_
+            left_obs, left_acts, right_obs, right_acts, labels = self.transform_batch(batch_)
+            loss, predicted_rewards_ = self._train_step(left_obs, left_acts, right_obs, right_acts, labels)
+            predicted_rewards = np.concatenate([predicted_rewards, predicted_rewards_]) if predicted_rewards is not None else predicted_rewards_
             losses.append(loss.item())
 
         avg_loss = np.mean(losses) if losses else 0
@@ -135,6 +140,7 @@ class ComparisonRewardPredictor(RewardModel):
         return rewards.view((batchsize, segment_length))
    
     def _train_step(self, left_obs, left_acts, right_obs, right_acts, labels):
+        self.model.train()
 
         rewards_left = self.predict_batch(left_obs, left_acts)
         rewards_right = self.predict_batch(right_obs, right_acts)
@@ -146,6 +152,7 @@ class ComparisonRewardPredictor(RewardModel):
         loss.backward()
         self.optimizer.step()
         predicted_rewards = torch.cat([rewards_left.flatten(), rewards_right.flatten()], dim=0).detach().cpu().numpy()
+        self.model.eval()
         return loss, predicted_rewards.squeeze()
 
     def save_model_checkpoint(self, path):
@@ -155,14 +162,22 @@ class ComparisonRewardPredictor(RewardModel):
         # predicted rewards for eaten and uneaten apples
 
         rewards = batch.true_rewards.reshape(-1)
+        fire_sucsses =batch.fire_sucsses.reshape(-1)
         actions = batch.actions.reshape(-1)
         aip = batch.aip.reshape(-1)
+
         positive_reward_mean = np.nanmean(predicted_rewards[rewards==1])
         positive_reward_std = np.nanstd(predicted_rewards[rewards==1])
 
         zero_reward_mean = np.nanmean(predicted_rewards[rewards==0])
         zero_reward_std = np.nanstd(predicted_rewards[rewards==0])
+
+        # on_fire_sucsses_mean  = np.nanmean(predicted_rewards[fire_sucsses==1])
+        # on_fire_sucsses_std  = np.nanstd(predicted_rewards[fire_sucsses==1])
+
         correlations = corrcoef(rewards, predicted_rewards)
+
+
 
         # predicted rewards per action
         action_reward_map = {
@@ -186,15 +201,16 @@ class ComparisonRewardPredictor(RewardModel):
             # on apples eaten or not
             "outcome_avg/apple_eaten": positive_reward_mean,
             "outcome_avg/no_apple_eaten": zero_reward_mean,
+            # "outcome_avg/on_fire_sucsses": on_fire_sucsses_mean,
             "outcome_avg/delta": positive_reward_mean-zero_reward_mean,
 
             "outcome_std/apple_eaten": positive_reward_std,
             "outcome_std/no_apple_eaten": zero_reward_std,
             "outcome_std/delta": positive_reward_std-zero_reward_std,
+            # "outcome_std/on_fire_sucsses": on_fire_sucsses_std,
         }
 
         return action_reward_map
         
-
     def load_model_checkpoint(self, path):
         self.model.load_state_dict(torch.load(f"{path}/predictor_{self.id_}.pth", map_location=self.device))

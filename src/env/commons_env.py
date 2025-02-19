@@ -69,6 +69,15 @@ class HarvestCommonsEnv(MapEnv):
         }
         return obs_space
 
+    @property
+    def state_space(self):
+        return  gymnasium.spaces.Box(
+            low=0,
+            high=255,
+            shape = self.state.shape,
+            dtype=np.uint8,
+        )
+    
     def step(self, action):
         observations, rewards, dones, infos = super().step(action)
         for agent_id, _ in self.agents.items():
