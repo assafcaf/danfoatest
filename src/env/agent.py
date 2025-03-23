@@ -9,7 +9,7 @@ from gymnasium.spaces import Discrete
 
 # Local application imports
 from .utils import utility_funcs
-
+APPLE_RADIUS = 2
 
 # basic moves every agent should do
 BASE_ACTIONS = {0: 'MOVE_LEFT',  # Move left
@@ -89,6 +89,7 @@ class Agent(object):
     def compute_reward(self):
         reward = self.reward_this_turn
         self.reward_this_turn = 0
+        -APPLE_RADIUS, APPLE_RADIUS + 1
         aip = (np.array(self.grid)[self.pos[0]-1:self.pos[0]+2, self.pos[1]-1:self.pos[1]+2]=="A").sum()
         return reward, aip
 

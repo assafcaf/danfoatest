@@ -1,31 +1,35 @@
 ENV_PARAMETERS:
-  num_frames: 2
+  num_frames: 3
   num_agent: 7
   ep_length: 600
-  num_envs: 8
-  num_cpus: 8
+  num_envs: 4
+  num_cpus: 4
+  map: 'HARVEST_MAP'
+  agent_view_range: 7
 
 RL_PARAMETERS:
   learner: "dqn"
-  spawn_speed: "slow"
+  spawn_speed: "fast"
   learning_rate: 0.0005
-  batch_size: 1024
-  tau: 0.01
+  batch_size: 128
+  tau: 0.035
   gamma: 0.99
   train_freq: 4
-  exploration_fraction: 0.3
-  learning_starts: 5000
-  buffer_size: 1000
+  exploration_fraction: 0.2
+  learning_starts: 50_000
+  buffer_size: 300
   exploration_final_eps: 0.1
-  policy: CnnPolicy
-  render_frequency: 20
+  # policy: CnnPolicy
+  policy: MlpPolicy
+  render_frequency: 10
+  features_dim: 128  # output layer of cnn extractor AND shared layer for policy and value functions
 
 EXPERIMENT_PARAMETERS:
-  gpu_id: 0
+  gpu_id: 1
   run_name_template: "{experiment}-{metric}-{spawn_speed}-{num_agents}_agents"
-  penalty: False
+  penalty: True
   metric: "Efficiency"
   independent: False
   experiment: "nrp"
   debug: False
-  total_timesteps: 35_000
+  n_episodes: 2_000

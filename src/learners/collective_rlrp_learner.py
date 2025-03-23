@@ -36,6 +36,27 @@ class CollectiveRLRPLearner:
         self.rp_learning_starts = rp_learning_starts
 
     def learn(self,
+              learner,
+              total_timesteps,
+              callback,
+              log_interval,
+              tb_log_name="run",
+              reset_num_timesteps=True,
+              progress_bar=False,
+        ):
+        if learner == "dqn":
+            learn_fn =  self.learn_dqn
+        elif learner == "ppo":
+            learn_fn = self.learn_ppo
+
+        return learn_fn(total_timesteps,
+                        callback,
+                        log_interval,
+                        tb_log_name,
+                        reset_num_timesteps,
+                        progress_bar)
+
+    def learn_dqn(self,
             total_timesteps,
             callback,
             log_interval,
@@ -87,11 +108,55 @@ class CollectiveRLRPLearner:
         callback.on_training_end()
         return self
     
+    def learn_ppo(self,
+            total_timesteps,
+            callback,
+            log_interval,
+            tb_log_name="run",
+            reset_num_timesteps=True,
+            progress_bar=False):
+        """
+        Train the RL agent and periodically train the reward predictor.
+
+        :param total_timesteps: Total number of timesteps to train the RL agent.
+        """
+        iteration = 0
+        total_timesteps, callback = self.rl_agent._setup_learn(
+                total_timesteps,
+                callback,
+                reset_num_timesteps,
+                tb_log_name,
+                progress_bar,
+            )
+        callback.on_training_start(locals(), globals())
+        assert self.rl_agent.env is not None, "You must set the environment before calling learn()"
+
+        while self.total_steps < total_timesteps:
+            # Collect rollouts with the RL agent
+            continue_training = self.rl_agent.collect_rollouts(self.rl_agent.env, callback, self.rl_agent.rollout_buffer, n_rollout_steps=self.rl_agent.n_steps)
+
+            if not continue_training:
+                break
+            iteration += 1
+            self.rl_agent._update_current_progress_remaining(self.rl_agent.num_timesteps, total_timesteps)
+            # Train the reward predictor periodically
+
+            rp_log_dict = self.train_reward_predictor()
+            for k, v in rp_log_dict.items():
+                self.rl_agent.logger.record(k, v)
+
+            # Train the RL agent
+          # Display training infos
+            if log_interval is not None and iteration % log_interval == 0:
+                self.rl_agent._dump_logs(iteration)
+            self.rl_agent.train()
+        return self
+    
     def train_reward_predictor(self):
         """
         Train the reward predictor network, with parallelization if enabled.
         """
-        rp_log_dict = self.reward_predictor.train_predictor(replay_buffer=self.rl_agent.replay_buffer, batch_size=self.batch_size, verbose=False)
+        rp_log_dict = self.reward_predictor.train_predictor(buffer=self.rl_agent.buffer, batch_size=self.batch_size, verbose=False)
         return rp_log_dict
 
     def _train_single_predictor(self, predictor):

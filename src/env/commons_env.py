@@ -3,11 +3,10 @@ import gymnasium
 # from social_dilemmas.envs
 from .commons_agent import HarvestCommonsAgent, HARVEST_DEFAULT_VIEW_SIZE
 from .map_env import MapEnv, ACTIONS
-from .maps import SMALL_HARVEST_MAP, MEDIUM_HARVEST_MAP, HARVEST_MAP_LARGER, HARVEST_MAP
+from .maps import SMALL_HARVEST_MAP, MEDIUM_HARVEST_MAP, HARVEST_MAP_LARGER, HARVEST_MAP, ARIGINALHARVEST_MAP_LARGER
 APPLE_RADIUS = 2
 
 # Add custom actions to the agent
-ACTIONS['FIRE'] = 7  # length of firing range
 
 SPAWN_PROB_SLOW = [0, 0.005, 0.02, 0.05] #github
 SPAWN_PROB_FAST = [0, 0.01, 0.05, 0.1] # paper
@@ -22,15 +21,17 @@ MAP = {"small": SMALL_HARVEST_MAP,
 
 class HarvestCommonsEnv(MapEnv):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
-    def __init__(self, ascii_map=HARVEST_MAP, num_agents=1, render=False, agent_view_range=HARVEST_DEFAULT_VIEW_SIZE,
+    def __init__(self, ascii_map='HARVEST_MAP', num_agents=1, render=False, agent_view_range=HARVEST_DEFAULT_VIEW_SIZE,
                  color_map=None, ep_length=600, spawn_speed='slow', metric="Efficiency"):
         self.ep_length = ep_length
         self.apple_points = []
+        ACTIONS['FIRE'] = agent_view_range  # length of firing range
+
         self.agent_view_range = agent_view_range
         self.spawn_speed = SPAWN_PROB_SLOW if spawn_speed=="slow" else SPAWN_PROB_FAST
         self.metric=metric
 
-        super().__init__(ascii_map, num_agents, render, color_map=color_map)
+        super().__init__(eval(ascii_map), num_agents, render, color_map=color_map)
 
         self.rewards_record = {}
         self.timeout_record = {}
@@ -89,14 +90,14 @@ class HarvestCommonsEnv(MapEnv):
 
     def setup_agents(self):
         map_with_agents = self.get_map_with_agents()
-
+        timeout_time = int(self.ep_length*0.025)
         for i in range(self.num_agents):
             agent_id = 'agent-' + str(i)
             spawn_point = self.spawn_point()
             rotation = self.spawn_rotation()
             grid = map_with_agents
             agent = HarvestCommonsAgent(agent_id, spawn_point, rotation, grid, lateral_view_range=self.agent_view_range,
-                                        frontal_view_range=self.agent_view_range)
+                                        frontal_view_range=self.agent_view_range, timeout_time=timeout_time)
             self.agents[agent_id] = agent
 
     def custom_reset(self):

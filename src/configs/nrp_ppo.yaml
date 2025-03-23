@@ -1,0 +1,37 @@
+ENV_PARAMETERS:
+  num_frames: 2
+  num_agent: 12
+  ep_length: 500
+  num_envs: 4
+  num_cpus: 4
+  map: 'HARVEST_MAP_LARGER'
+
+
+RL_PARAMETERS:
+  learner: "ppo"
+  spawn_speed: "fast"
+  learning_rate: 0.0005
+  batch_size:  1000
+  ent_coef: 0.01 
+  gamma: 0.98
+  gae_lambda: 1
+  target_kl: 0.05
+  max_grad_norm: 40
+  policy: CnnPolicy
+  render_frequency: 10
+  n_steps: 500
+  n_epochs: 2
+  vf_coef : 1
+  clip_range: 1
+  features_dim: 128  # output layer of cnn extractor AND shared layer for policy and value functions
+
+EXPERIMENT_PARAMETERS:
+  gpu_id: 1
+  run_name_template: "{experiment}-{metric}-{spawn_speed}-{num_agents}_agents"
+  penalty: False
+  metric: "Efficiency"
+  independent: True
+  experiment: "nrp"
+  debug: False
+  n_episodes: 80_000
+  n_episodes

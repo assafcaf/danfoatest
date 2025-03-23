@@ -1,69 +1,9 @@
 from collections import deque
 import numpy as np
 from stable_baselines3.common.buffers import ReplayBuffer
-from typing import Any, NamedTuple
 from enum import Enum
 from gymnasium import spaces
-from stable_baselines3.common.type_aliases import ReplayBufferSamples
-
-class PRMEpisodeData(NamedTuple):
-    observations: np.ndarray
-    actions: np.ndarray
-    experiment_rewards: np.ndarray
-    true_rewards:np.ndarray
-    aip:np.array
-    fire_sucsses: np.array
-
-    def __add__(self, other):
-        """Dynamically concatenates PRMEpisodeData instances without relying on hardcoded field names."""
-        combined_data = {}
-
-        for field in self._fields:  # Iterate over all named fields
-            self_value = getattr(self, field)
-            other_value = getattr(other, field)
-
-            # If both values are not None, concatenate them
-            if self_value is not None and other_value is not None:
-                combined_data[field] = np.concatenate([self_value, other_value], axis=0)
-            elif self_value is not None:
-                combined_data[field] = self_value
-            else:
-                combined_data[field] = other_value
-
-        return PRMEpisodeData(**combined_data)
-
-    def __len__(self):
-        return self.observations.shape[0]
-
-
-class CRMEpisodeData(NamedTuple):
-    states: np.ndarray
-    actions: np.ndarray
-    experiment_rewards: np.ndarray
-    true_rewards:np.ndarray
-    aip:np.array
-    fire_sucsses: np.array
-
-    def __add__(self, other):
-        """Dynamically concatenates PRMEpisodeData instances without relying on hardcoded field names."""
-        combined_data = {}
-
-        for field in self._fields:  # Iterate over all named fields
-            self_value = getattr(self, field)
-            other_value = getattr(other, field)
-
-            # If both values are not None, concatenate them
-            if self_value is not None and other_value is not None:
-                combined_data[field] = np.concatenate([self_value, other_value], axis=0)
-            elif self_value is not None:
-                combined_data[field] = self_value
-            else:
-                combined_data[field] = other_value
-
-        return PRMEpisodeData(**combined_data)
-
-    def __len__(self):
-        return self.states.shape[0]
+from stable_baselines3.common.type_aliases import ReplayBufferSamples, RolloutBuffer
 
 
 class PRMShardReplayBuffer(ReplayBuffer):
@@ -94,7 +34,6 @@ class PRMShardReplayBuffer(ReplayBuffer):
         self.experiment_rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.true_rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.aip = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
-        self.fire_sucsses = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
 
     @property
     def predicted_rewards(self):
@@ -134,10 +73,9 @@ class PRMShardReplayBuffer(ReplayBuffer):
         self.actions[self.pos] = np.array(action)
         self.predicted_rewards[self.pos] = np.array(reward)
         self.experiment_rewards[self.pos] = np.array(experiment_rewards)
-        self.true_rewards[self.pos] = np.array([info.get("true_reward", False) for info in infos])
+        self.true_rewards[self.pos] = np.array([info['true_reward'] for info in infos])
         self.dones[self.pos] = np.array(done)
-        self.aip[self.pos] = np.array([info.get("aip", False) for info in infos])
-        self.fire_sucsses[self.pos] = np.array([info.get("fire_sucsses", False) for info in infos])
+        self.aip[self.pos] = np.array([info['aip'] for info in infos])
         
         if self.handle_timeout_termination:
             self.timeouts[self.pos] = np.array([info.get("TimeLimit.truncated", False) for info in infos])
@@ -166,13 +104,11 @@ class PRMShardReplayBuffer(ReplayBuffer):
             experiment_rewards[i] = self.experiment_rewards[start_idx:end_idx, env_idx]
             true_rewards[i] = self.true_rewards[start_idx:end_idx, env_idx]
             aip[i] = self.aip[start_idx:end_idx, env_idx]
-            fire_sucsses[i] = self.fire_sucsses[start_idx:end_idx, env_idx]
         return PRMEpisodeData(observations=observations,
                               actions=actions,
                               experiment_rewards=experiment_rewards,
                               true_rewards=true_rewards,
-                              aip=aip,
-                              fire_sucsses=fire_sucsses)
+                              aip=aip)
 
 class CRMShardReplayBuffer(PRMShardReplayBuffer):
     states: np.array

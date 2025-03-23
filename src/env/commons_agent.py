@@ -9,7 +9,7 @@ from .agent import BASE_ACTIONS, Agent
 HARVEST_ACTIONS = BASE_ACTIONS.copy()
 HARVEST_ACTIONS.update({7: 'FIRE'})  # Fire a penalty beam
 
-HARVEST_DEFAULT_VIEW_SIZE = 7
+HARVEST_DEFAULT_VIEW_SIZE = 10
 TIMEOUT_TIME = 25
 
 
@@ -17,8 +17,9 @@ class HarvestCommonsAgent(Agent):
     TIMEOUT_TIME = TIMEOUT_TIME
     def __init__(self, agent_id, start_pos, start_orientation, grid,
                  lateral_view_range=HARVEST_DEFAULT_VIEW_SIZE,
-                 frontal_view_range=HARVEST_DEFAULT_VIEW_SIZE,):
-
+                 frontal_view_range=HARVEST_DEFAULT_VIEW_SIZE,
+                 timeout_time=25):
+        self.TIMEOUT_TIME = timeout_time
         self.lateral_view_range = lateral_view_range
         self.frontal_view_range = frontal_view_range
         # When hit, agent is cast away from map for `remaining_timeout` n_steps
@@ -66,6 +67,16 @@ class HarvestCommonsAgent(Agent):
             return ' '
         else:
             return char
+
+    def get_state(self):
+        map = super().get_state()
+
+        if self.remaining_timeout > 0:
+            for i in range(self.lateral_view_range-1, self.lateral_view_range +2):
+                for j in range(self.frontal_view_range-1, self.frontal_view_range +2):
+                     map[i, j] = "@"
+        map[self.lateral_view_range, self.frontal_view_range] = "S"
+        return map
 
     def return_valid_pos(self, new_pos):
         if self.remaining_timeout > 0:

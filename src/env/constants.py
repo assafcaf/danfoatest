@@ -16,7 +16,7 @@ DIFFERENT_COLORMAP = {' ': [0, 0, 0],  # Black background
                    '': [180, 180, 180],  # Grey board walls
                    '@': [180, 180, 180],  # Grey board walls
                    'A': [0, 255, 0],  # Green apples
-                   'F': [255, 255, 0],  # Yellow fining beam
+                   'F': [0, 255, 255],  # Yellow fining beam
                    'P': [159, 67, 255],  # Purple player
                    'S': [255, 255, 255], #White for Self position
                    # Colours for agents. R value is a unique identifier
@@ -35,16 +35,16 @@ SAME_COLORMAP = {' ': [0, 0, 0],  # Black background
                    '': [180, 180, 180],  # Grey board walls
                    '@': [180, 180, 180],  # Grey board walls
                    'A': [0, 255, 0],  # Green apples
-                   'F': [255, 255, 0],  # Yellow fining beam
+                   'F': [0, 255, 255],  # Yellow fining beam
                    'P': [159, 67, 255],  # Purple player
-                   'S': [255, 255, 255], #White for Self position
+                   'S': [255, 0, 0], #White for Self position
                    # Colours for agents. R value is a unique identifier
-                   '1': [0, 0, 255],  # Purple
-                   '2': [0, 0, 255],  # Blue
-                   '3': [0, 0, 255],  # Magenta
+                   '1': [0, 0, 255],  # Red
+                   '2': [0, 0, 255],  # Red
+                   '3': [0, 0, 255],  # Red
                    '4': [0, 0, 255],  # Red
-                   '5': [0, 0, 255],  # Orange
-                   '6': [0, 0, 255],  # Cyan
-                   '7': [0, 0, 255],  # Lavender
-                   '8': [0, 0, 255],  # Pink
-                   '9': [0, 0, 255]}  # Yellow
+                   '5': [0, 0, 255],  # Red
+                   '6': [0, 0, 255],  # Red
+                   '7': [0, 0, 255],  # Red
+                   '8': [0, 0, 255],  # Red
+                   '9': [0, 0, 255]}  # Red

@@ -208,6 +208,10 @@ class DQNPRM(DQN):
         # Save the unnormalized observation
         if self._vec_normalize_env is not None:
             self._last_original_obs = new_obs_
+    
+    @property
+    def buffer(self):
+        return self.replay_buffer
 
 class DQNCRM(DQN):
     def __init__(self, env: Union[GymEnv, str], predictor, num_agents: int, *args, **kwargs):

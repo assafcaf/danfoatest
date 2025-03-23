@@ -2,8 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from collections import deque
-from .nn import MlpNetwork, CnnNetwork
+from .nn import EmbedCnnNetwork, OneHotCnnNetwork
 from ..utils import corrcoef
 
 
@@ -31,6 +30,10 @@ class RewardModel:
 
 
 class ComparisonRewardPredictor(RewardModel):
+    networks_types = {
+        "EmbedCnnNetwork": EmbedCnnNetwork,
+        "OneHotCnnNetwork": OneHotCnnNetwork
+    }
     """
     Predicts reward values for trajectory segments using a neural network.
     """
@@ -38,12 +41,13 @@ class ComparisonRewardPredictor(RewardModel):
         self,
         agent_logger,
         observation_space,
-        action_space,
+        n_actions,
         epochs,
         device,
         lr=0.0001, 
         save_every=200,
         id_=0,
+        network="EmbedCnnNetwork",
         network_kwargs={'h_size': 64, 'emb_dim': 64}
     ):
         super().__init__(agent_logger)
@@ -54,18 +58,18 @@ class ComparisonRewardPredictor(RewardModel):
         self.id_ = id_
         self.save_every = save_every
         self.observation_space = observation_space
-        self._initialize_buffers_and_model(observation_space, action_space, network_kwargs)
+        self._initialize_buffers_and_model(network, observation_space, n_actions, network_kwargs)
 
-    def _initialize_buffers_and_model(self, observation_space, action_space, network_kwargs):
-        self.recent_segments = deque(maxlen=200)
+    def _initialize_buffers_and_model(self, network,observation_space, n_actions, network_kwargs):
 
-        self.model = CnnNetwork(
+        self.model = self.networks_types[network](
             observation_space=observation_space, 
-            n_actions=action_space, 
+            n_actions=n_actions, 
             **network_kwargs
         ).to(self.device)
-
-        self.loss = nn.CrossEntropyLoss()
+        # self.model.compile()
+        # self.loss = nn.BCEWithLogitsLoss(reduction='none')
+        self.loss = nn.CrossEntropyLoss(reduction='none')
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=1e-4)
 
     def predict(self, obs, act):
@@ -88,20 +92,25 @@ class ComparisonRewardPredictor(RewardModel):
         right_r = batch.experiment_rewards[l:].sum(axis=1)
 
         # lables
-        labels =  torch.tensor(left_r < right_r).to(self.device).long()
+        # labels =  torch.tensor(left_r < right_r).to(self.device).long()
+        l1 = torch.tensor(left_r >= right_r).to(self.device).float()
+        l2 = torch.tensor(left_r <= right_r).to(self.device).float()
+        labels = torch.stack([l1, l2], dim=1)
 
-        return left_obs, left_acts, right_obs, right_acts, labels
+
+        delta = torch.tensor(left_r - right_r).abs()
+        return left_obs, left_acts, right_obs, right_acts, labels, delta
     
-    def train_predictor(self, replay_buffer, batch_size, verbose=False):
+    def train_predictor(self, buffer, batch_size, verbose=False):
         """Train the reward predictor network."""
         losses = []
         batch = None
         predicted_rewards = None
         for _ in range(self.epochs):
-            batch_ = replay_buffer.get_episodes(batch_size)
+            batch_ = buffer.get_episodes(batch_size)
             batch = batch + batch_ if batch is not None else batch_
-            left_obs, left_acts, right_obs, right_acts, labels = self.transform_batch(batch_)
-            loss, predicted_rewards_ = self._train_step(left_obs, left_acts, right_obs, right_acts, labels)
+            left_obs, left_acts, right_obs, right_acts, labels, delta = self.transform_batch(batch_)
+            loss, predicted_rewards_ = self._train_step(left_obs, left_acts, right_obs, right_acts, labels, delta)
             predicted_rewards = np.concatenate([predicted_rewards, predicted_rewards_]) if predicted_rewards is not None else predicted_rewards_
             losses.append(loss.item())
 
@@ -139,14 +148,20 @@ class ComparisonRewardPredictor(RewardModel):
         # return tf.reshape(rewards, (batchsize, segment_length))
         return rewards.view((batchsize, segment_length))
    
-    def _train_step(self, left_obs, left_acts, right_obs, right_acts, labels):
+    def _train_step(self, left_obs, left_acts, right_obs, right_acts, labels, delta):
         self.model.train()
 
         rewards_left = self.predict_batch(left_obs, left_acts)
         rewards_right = self.predict_batch(right_obs, right_acts)
 
         logits = torch.stack([rewards_left.sum(axis=1), rewards_right.sum(axis=1)], dim=1)
-        loss = self.loss(logits, labels)
+        # loss = self.loss(rewards_left.sum(axis=1), rewards_right.sum(axis=1), labels)
+        # loss = (self.loss(logits, labels)*torch.nn.functional.softmax((delta-delta.mean())/delta.std(), dim=0).unsqueeze(1).to(self.device)).sum() # BCE
+        loss = (self.loss(logits, labels)
+                * torch.nn.functional.softmax(
+                    delta/(delta.std()+1),
+                    dim=0
+                ).to(self.device)).sum() # Cross Entropy
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -162,7 +177,6 @@ class ComparisonRewardPredictor(RewardModel):
         # predicted rewards for eaten and uneaten apples
 
         rewards = batch.true_rewards.reshape(-1)
-        fire_sucsses =batch.fire_sucsses.reshape(-1)
         actions = batch.actions.reshape(-1)
         aip = batch.aip.reshape(-1)
 
@@ -194,9 +208,9 @@ class ComparisonRewardPredictor(RewardModel):
             
 
             'predicter rewards by appeals in porximity/0': np.nanmean(predicted_rewards[(rewards==1) & (aip==0)]),
-            'predicter rewards by appeals in porximity/1': np.nanmean(predicted_rewards[(rewards==1) & (aip==1)]),
-            'predicter rewards by appeals in porximity/2': np.nanmean(predicted_rewards[(rewards==1) & (aip==2)]),
-            'predicter rewards by appeals in porximity/3+': np.nanmean(predicted_rewards[(rewards==1) & (aip>=3)]),
+            'predicter rewards by appeals in porximity/1': np.nanmean(predicted_rewards[(rewards==1) & ((aip==1) | (aip==2))]),
+            'predicter rewards by appeals in porximity/2': np.nanmean(predicted_rewards[(rewards==1) & ((aip==2) |( aip==3))]),
+            'predicter rewards by appeals in porximity/3+': np.nanmean(predicted_rewards[(rewards==1) & (aip>=4)]),
 
             # on apples eaten or not
             "outcome_avg/apple_eaten": positive_reward_mean,

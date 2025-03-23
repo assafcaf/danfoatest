@@ -36,5 +36,5 @@ EXPERIMENT_PARAMETERS:
   run_name_template: "{experiment}-{metric}-{spawn_speed}-{num_agents}_agents"
   gpu_id: 0
   debug: False
-  total_timesteps: 35_000
+  n_episodes: 35_000
     

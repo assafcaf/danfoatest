@@ -1,1 +1,2 @@
-from .buffers import PRMShardReplayBuffer, CRMShardReplayBuffer
+from .replay_buffers import PRMShardReplayBuffer, CRMShardReplayBuffer
+from .rollout_buffers import PRMShardRolloutBuffer

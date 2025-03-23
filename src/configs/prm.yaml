@@ -1,44 +1,51 @@
-RP_PARAMETERS:
-  learning_starts: 2
-  batch_size: 16
-  train_freq: 1
-  predictor_epochs: 10
-  lr: 0.0002
-  h_size: 64
-  emb_dim: 32
-  features_dim: 256
-
-  
-
 ENV_PARAMETERS:
-  num_frames: 2
+  num_frames: 3
   num_agent: 7
   ep_length: 600
-  num_envs: 8
-  num_cpus: 8
+  num_envs: 4
+  num_cpus: 4
+  map: 'HARVEST_MAP'
+  agent_view_range: 7
 
 RL_PARAMETERS:
   learner: "dqn"
-  spawn_speed: "slow"
+  spawn_speed: "fast"
   learning_rate: 0.0005
   batch_size: 128
-  tau: 0.01
+  tau: 0.035
   gamma: 0.99
   train_freq: 4
-  exploration_fraction: 0.3
-  learning_starts: 500000
-  buffer_size: 250
-  exploration_final_eps: 0.1
-  policy: CnnPolicy
-  render_frequency: 20
+  exploration_fraction: 0.35
+  exploration_final_eps: 0.03
+  learning_starts: 1_500_000
+  buffer_size: 500
+  policy: MlpPolicy
+  render_frequency: 25
+  features_dim: 128  # output layer of cnn extractor AND shared layer for policy and value functions
 
 EXPERIMENT_PARAMETERS:
   penalty: False
   metric: "Efficiency"
+
+  # metric: "Efficiency*Sustainability"
   experiment: "prm"
   independent: False 
   run_name_template: "{experiment}-{metric}-{spawn_speed}-{num_agents}_agents"
-  gpu_id: 1
+  gpu_id: 0
   debug: False
-  total_timesteps: 35_000
+  n_episodes: 6_000
+
+
+RP_PARAMETERS:
+  learning_starts: 1
+  batch_size: 32
+  train_freq: 1
+  predictor_epochs: 3
+  lr: 0.0005
+  emb_dim: 32
+  features_dim: 512
+  fcnet_hiddens: [64, 32, 16]
+  network: "OneHotCnnNetwork" # options -> [EmbedCnnNetwork, OneHotCnnNetwork]
+  
+    
     

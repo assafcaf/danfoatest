@@ -41,3 +41,6 @@ class PPO(sb3_PPO):
         self.logger.record("metrics/fire_attempts", safe_mean([ep_info["fire_attempts"] for ep_info in self.ep_info_buffer]))
         self.logger.record("metrics/fire_sucsses", safe_mean([ep_info["fire_sucsses"] for ep_info in self.ep_info_buffer]))
         super()._dump_logs(iteration)
+
+    def set_logger(self, logger):
+        super().set_logger(logger[0])

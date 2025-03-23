@@ -1,0 +1,49 @@
+ENV_PARAMETERS:
+  num_frames: 3
+  num_agent: 1
+  ep_length: 200
+  num_envs: 4
+  num_cpus: 4
+  map: "SMALL_HARVEST_MAP"
+  agent_view_range: 5
+
+
+RL_PARAMETERS:
+  learner: "dqn"
+  spawn_speed: "fast"
+  learning_rate: 0.0005
+  batch_size: 128
+  tau: 0.01
+  gamma: 0.99
+  train_freq: 4
+  exploration_fraction: 0.3
+  exploration_final_eps: 0.05
+  learning_starts: 500_000
+  buffer_size: 1000
+  policy: MlpPolicy
+  render_frequency: 20
+
+EXPERIMENT_PARAMETERS:
+  penalty: False
+  # metric: "Efficiency"
+  metric: "Efficiency*Sustainability"
+  experiment: "prm-single"
+  independent: False 
+  run_name_template: "{experiment}-{metric}-{spawn_speed}-{num_agents}_agents"
+  gpu_id: 0
+  debug: False
+  n_episodes: 10_000
+
+
+RP_PARAMETERS:
+  learning_starts: 1
+  batch_size: 4
+  train_freq: 1
+  predictor_epochs: 8
+  lr: 0.0005
+  emb_dim: 32
+  features_dim: 512
+  fcnet_hiddens: [64, 32, 16]
+  network: "OneHotCnnNetwork" # options -> [EmbedCnnNetwork, OneHotCnnNetwork]
+  
+    

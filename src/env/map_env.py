@@ -10,7 +10,7 @@ from .constants import ACTIONS, ORIENTATIONS, DIFFERENT_COLORMAP, SAME_COLORMAP
 
 class MapEnv(gymnasium.Env):
 
-    def __init__(self, ascii_map, num_agents=1, render=True, color_map=None, same_color=False):
+    def __init__(self, ascii_map, num_agents=1, render=True, color_map=None, same_color=True, full_state=False):
         """
 
         Parameters
@@ -26,6 +26,7 @@ class MapEnv(gymnasium.Env):
             Specifies how to convert between ascii chars and colors
         """# rather to use effiency or effiency*peace
         self.num_agents = num_agents
+        self.full_state = full_state
         self.base_map = self.ascii_to_numpy(ascii_map)
         # map without agents or beams
         self.world_map = np.full((len(self.base_map), len(self.base_map[0])), ' ')
@@ -142,15 +143,18 @@ class MapEnv(gymnasium.Env):
         infos = {}
         for agent in self.agents.values():
             agent.grid = map_with_agents
-            rgb_arr = self.map_to_colors(agent.get_state(), self.color_map, full_map=False)
+            rgb_arr = self.single_agent_map_to_colors(agent.get_state(), self.color_map)
             rgb_arr = self.rotate_view(agent.orientation, rgb_arr)
             # observations[agent.agent_id] = rgb_arr
             observations[agent.agent_id] = {"curr_obs": rgb_arr}
             rewards[agent.agent_id], aip = agent.compute_reward() # aip-> appeals in proximity
             dones[agent.agent_id] = agent.get_done()
-            infos[agent.agent_id] = {"state": self.state,
-                                     'true_reward': rewards[agent.agent_id],
-                                     "aip": aip}
+            infos[agent.agent_id] = {
+                'true_reward': rewards[agent.agent_id],
+                "aip": aip
+            }
+            if self.full_state:
+                infos[agent.agent_id]['state'] =  self.state,
         dones["__all__"] = np.any(list(dones.values()))
         return observations, rewards, dones, infos
 
@@ -180,10 +184,11 @@ class MapEnv(gymnasium.Env):
             agent.grid = map_with_agents
             # agent.grid = util.return_view(map_with_agents, agent.pos,
             #                               agent.row_size, agent.col_size)
-            rgb_arr = self.map_to_colors(agent.get_state(), self.color_map, full_map=False)
+            rgb_arr = self.single_agent_map_to_colors(agent.get_state(), self.color_map)
             # observations[agent.agent_id] = rgb_arr
             observations[agent.agent_id] = {"curr_obs": rgb_arr}
-            infos[agent.agent_id] = {"state": self.state}
+            if self.full_state:
+                infos[agent.agent_id] = {"state": self.state}
         return observations, infos
 
     @property
@@ -249,7 +254,7 @@ class MapEnv(gymnasium.Env):
                 return False
         return True
 
-    def map_to_colors(self, map=None, color_map=None, full_map=False):
+    def map_to_colors(self, map=None, color_map=None):
         """Converts a map to an array of RGB values.
         Parameters
         ----------
@@ -267,9 +272,6 @@ class MapEnv(gymnasium.Env):
         if color_map is None:
             color_map = self.color_map
 
-        if not full_map:
-            map[map.shape[0]//2, map.shape[1]//2] = 'S'
-
         rgb_arr = np.zeros((map.shape[0], map.shape[1], 3), dtype=np.uint8)
         for row_elem in range(map.shape[0]):
             for col_elem in range(map.shape[1]):
@@ -277,12 +279,36 @@ class MapEnv(gymnasium.Env):
 
         return rgb_arr
 
+    def single_agent_map_to_colors(self, map=None, color_map=None,):
+        """Converts a map to an array of RGB values.
+        Parameters
+        ----------
+        map: np.ndarray
+            map to convert to colors
+        color_map: dict
+            mapping between array elements and desired colors
+        Returns
+        -------
+        arr: np.ndarray
+            3-dim numpy array consisting of color map
+        """
+        m = map.shape[0]//2
+        if map is None:
+            map = self.get_map_with_agents()
+        if color_map is None:
+            color_map = self.color_map
+        rgb_arr = np.zeros((map.shape[0], map.shape[1], 3), dtype=np.uint8)
+        for row_elem in range(map.shape[0]):
+            for col_elem in range(map.shape[1]):
+                rgb_arr[row_elem, col_elem, :] = color_map[map[row_elem, col_elem]]
+        return rgb_arr
+    
     @property
     def state(self):
-        return np.transpose(self.map_to_colors(self.get_map_with_agents(), full_map=True).astype(np.uint8), (2, 1, 0))
-    
+        return np.transpose(self.map_to_colors(self.get_map_with_agents(),).astype(np.uint8), (2, 1, 0))
 
-    def render(self, filename=None, mod=None):
+
+    def render(self, filename=None, mode=None):
         """ Creates an image of the map to plot or save.
 
         Args:
@@ -291,8 +317,8 @@ class MapEnv(gymnasium.Env):
         """
         map_with_agents = self.get_map_with_agents()
 
-        rgb_arr = self.map_to_colors(map_with_agents, full_map=True)
-        if mod == "human":
+        rgb_arr = self.map_to_colors(map_with_agents)
+        if mode == "human":
             plt.cla()
             plt.imshow(rgb_arr, interpolation="nearest")
             if filename is None:
@@ -552,8 +578,11 @@ class MapEnv(gymnasium.Env):
         firing_direction = ORIENTATIONS[firing_orientation]
         # compute the other two starting positions
         right_shift = self.rotate_right(firing_direction)
-        firing_pos = [start_pos, start_pos + right_shift - firing_direction,
-                      start_pos - right_shift - firing_direction]
+        firing_pos = [
+            start_pos, #midle
+            start_pos + right_shift - firing_direction,
+            start_pos - right_shift - firing_direction,
+            ]
         firing_points = []
         updates = []
         for pos in firing_pos:
@@ -635,6 +664,30 @@ class MapEnv(gymnasium.Env):
         else:
             raise ValueError('Orientation {} is not valid'.format(orientation))
 
+    # def rotate_view(self, orientation, view):
+    #     """Takes a view of the map and rotates it the agent orientation
+    #     Parameters
+    #     ----------
+    #     orientation: str
+    #         str in {'UP', 'LEFT', 'DOWN', 'RIGHT'}
+    #     view: np.ndarray (row, column, channel)
+    #     Returns
+    #     -------
+    #     a rotated view
+    #     """
+    #     m =  view.shape[0]//2
+    #     if orientation == "UP":
+    #         view_ = view
+    #     elif orientation == 'LEFT':
+    #         view_ = np.rot90(view, k=1, axes=(0, 1))
+    #     elif orientation == 'DOWN':
+    #         view_ =  np.rot90(view, k=2, axes=(0, 1))
+    #     elif orientation == 'RIGHT':
+    #         view_ =  np.rot90(view, k=3, axes=(0, 1))
+    #     else:
+    #         raise ValueError('Orientation {} is not valid'.format(orientation))
+    #     # return np.rot90(view_[m:-1, m//2:-m//2], k=2, axes=(0, 1))
+    #     return view_[m:-1, m//2:-m//2]
     def build_walls(self):
         for i in range(len(self.wall_points)):
             row, col = self.wall_points[i]

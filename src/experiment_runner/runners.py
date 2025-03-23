@@ -8,9 +8,9 @@ from callbacks import SingleAgentCallback
 from configs import Config
 from reward_predictor import AgentLoggerSb3, RPMRewardPredictor, CRMRewardPredictor
 from learners import CollectiveRLRPLearner, IndependentRLRPLearner
-from buffers import PRMShardReplayBuffer, CRMShardReplayBuffer
+from buffers import PRMShardReplayBuffer, CRMShardReplayBuffer, PRMShardRolloutBuffer
 from env import parallel_env
-from rl_agents import DQN, IndependentDQN, PPO, CnnFeatureExtractor, DQNPRM, DQNCRM
+from rl_agents import DQN, IndependentDQN, PPO, IndependentPPO, CnnFeatureExtractor, CustomCNN, DQNPRM, DQNCRM, PPOPRM
 
 import os
 import yaml
@@ -33,19 +33,45 @@ class BaseRunner:
 
         # Set CUDA devices
         os.environ["CUDA_VISIBLE_DEVICES"] = str(self.config.EXPERIMENT_PARAMETERS.gpu_id)
-        self.learner_kwargs = {
+        if self.config.RL_PARAMETERS.learner == "dqn":
+            self.learner_kwargs = {
+                "learning_rate": self.config.RL_PARAMETERS.learning_rate,
+                "batch_size": self.config.RL_PARAMETERS.batch_size,
+                "tau" :self.config.RL_PARAMETERS.tau,
+                "gamma": self.config.RL_PARAMETERS.gamma,
+                "train_freq": self.config.RL_PARAMETERS.train_freq,
+                "exploration_fraction": self.config.RL_PARAMETERS.exploration_fraction,
+                "learning_starts": self.config.RL_PARAMETERS.learning_starts,
+                "buffer_size": self.compute_buffer_size(),
+                "exploration_final_eps": self.config.RL_PARAMETERS.exploration_final_eps,
+                "policy": self.config.RL_PARAMETERS.policy,
+                'replay_buffer_class': PRMShardReplayBuffer,
+                'replay_buffer_kwargs': {"episode_length": self.config.ENV_PARAMETERS.ep_length}
+            }
+        else: 
+            self.learner_kwargs = {
             "learning_rate": self.config.RL_PARAMETERS.learning_rate,
             "batch_size": self.config.RL_PARAMETERS.batch_size,
-            "tau" :self.config.RL_PARAMETERS.tau,
+            "ent_coef" :self.config.RL_PARAMETERS.ent_coef,
             "gamma": self.config.RL_PARAMETERS.gamma,
-            "train_freq": self.config.RL_PARAMETERS.train_freq,
-            "exploration_fraction": self.config.RL_PARAMETERS.exploration_fraction,
-            "learning_starts": self.config.RL_PARAMETERS.learning_starts,
-            "buffer_size": self.compute_buffer_size(),
-            "exploration_final_eps": self.config.RL_PARAMETERS.exploration_final_eps,
-            "policy": self.config.RL_PARAMETERS.policy
-        }
-   
+            "gae_lambda": self.config.RL_PARAMETERS.gae_lambda,
+            "target_kl": self.config.RL_PARAMETERS.target_kl,
+            "max_grad_norm": self.config.RL_PARAMETERS.max_grad_norm,
+            "policy": self.config.RL_PARAMETERS.policy,
+            "n_steps": self.config.RL_PARAMETERS.n_steps,
+            "n_epochs": self.config.RL_PARAMETERS.n_epochs,
+            "vf_coef": self.config.RL_PARAMETERS.vf_coef,
+            "clip_range": self.config.RL_PARAMETERS.clip_range,
+            "rollout_buffer_class": PRMShardRolloutBuffer,
+            "rollout_buffer_kwargs": {"replay_kwargs": {"episode_length": self.config.ENV_PARAMETERS.ep_length,
+                                                        "buffer_size": self.compute_buffer_size()}}
+            }
+                # Experiment settings
+        
+        self.experiment = self.config.EXPERIMENT_PARAMETERS.experiment+f"-{self.config.RL_PARAMETERS.learner}"
+        self.experiment += '-independent' if self.config.EXPERIMENT_PARAMETERS.independent else ""
+        self.experiment += '-penalty' if self.config.EXPERIMENT_PARAMETERS.penalty else ""
+
     def init_experiment(self, agent_fn):
         dir_name = self.config.EXPERIMENT_PARAMETERS.run_name_template.format(
             experiment=self.experiment,
@@ -62,8 +88,10 @@ class BaseRunner:
         render_frequency = self.config.RL_PARAMETERS.render_frequency*self.config.ENV_PARAMETERS.ep_length
         if self.config.RL_PARAMETERS.learner == "ppo":
             log_interval = 1
+            render_frequency = self.config.RL_PARAMETERS.render_frequency
         else:
             log_interval = self.config.ENV_PARAMETERS.num_agent * self.config.ENV_PARAMETERS.num_envs
+            render_frequency = self.config.RL_PARAMETERS.render_frequency*self.config.ENV_PARAMETERS.ep_length
 
         callback = SingleAgentCallback(
             eval_env,
@@ -82,7 +110,9 @@ class BaseRunner:
             ep_length=config.ENV_PARAMETERS.ep_length,
             penalty=config.EXPERIMENT_PARAMETERS.penalty,
             spawn_speed=config.RL_PARAMETERS.spawn_speed,
-            metric=config.EXPERIMENT_PARAMETERS.metric
+            metric=config.EXPERIMENT_PARAMETERS.metric,
+            ascii_map=config.ENV_PARAMETERS.map,
+            agent_view_range=config.ENV_PARAMETERS.agent_view_range
         )
         env = ss.observation_lambda_v0(env, lambda x, _: x["curr_obs"], lambda s: s["curr_obs"])
         env = ss.frame_stack_v1(env, self.config.ENV_PARAMETERS.num_frames)
@@ -107,14 +137,23 @@ class BaseRunner:
 
     def setup_agent(self, vec_env, agent_fn, log_dir):
         loggers = self.setup_loggers(log_dir)
-
+        
+        # # # ssd paper
+        # policy_kwargs = dict(
+        #     features_extractor_class=CustomCNN,
+        #     features_extractor_kwargs=dict(features_dim=self.config.RL_PARAMETERS.features_dim,
+        #                                    num_frames=self.config.ENV_PARAMETERS.num_frames),
+        #     net_arch=[self.config.RL_PARAMETERS.features_dim],
+        # )
+        
+        # my network
         policy_kwargs = dict(
             features_extractor_class=CnnFeatureExtractor,
-            features_extractor_kwargs=dict(features_dim=128),
+            features_extractor_kwargs=dict(features_dim=self.config.RL_PARAMETERS.features_dim),
         )
         agent = agent_fn(env=vec_env,
                          device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
-                         policy_kwargs=policy_kwargs,
+                        #  policy_kwargs=policy_kwargs,
                          **self.learner_kwargs
                     )
         agent.set_logger(loggers)
@@ -131,14 +170,26 @@ class BaseRunner:
         """Runs the experiment."""
 
         agent, callback, log_interval = self.init_experiment()
-        total_timesteps = (self.config.EXPERIMENT_PARAMETERS.total_timesteps
+        total_timesteps = (self.config.EXPERIMENT_PARAMETERS.n_episodes
                            *self.config.ENV_PARAMETERS.ep_length
-                           *self.config.ENV_PARAMETERS.num_envs)
+                           *self.config.ENV_PARAMETERS.num_envs
+                           *self.config.ENV_PARAMETERS.num_agent)
         print("Training starting...")
-        agent.learn(total_timesteps=total_timesteps,
-                    log_interval=log_interval,
-                    callback=callback,
-                    progress_bar=True)
+        if type(agent) is CollectiveRLRPLearner or  type(agent) is IndependentRLRPLearner:
+            agent.learn(
+                learner=self.config.RL_PARAMETERS.learner,
+                total_timesteps=total_timesteps,
+                log_interval=log_interval,
+                callback=callback,
+                progress_bar=True
+            )
+        else:
+            agent.learn(
+                total_timesteps=total_timesteps,
+                log_interval=log_interval,
+                callback=callback,
+                progress_bar=True
+            )
         print("Finished training.")
         exit()
 
@@ -154,6 +205,7 @@ class BaseRunner:
             buffer_size = buffer_size*num_envs*num_agent*ep_length
         else: # if independent, the buffer size not multiplied by the number of agents
             buffer_size = buffer_size*num_envs*ep_length
+        print(f"buffer_size: {buffer_size}")
         return buffer_size
 
     @staticmethod
@@ -171,14 +223,18 @@ class BaseRunner:
 
         Args:
             config_path (str): Path to the YAML file (absolute, relative, or filename).
-            configs_dir (str): Directory to search for the file if not found in the provided path.
-
         Returns:
             dict: Loaded YAML configuration as a dictionary.
 
         Raises:
             FileNotFoundError: If the file cannot be found in both locations.
         """
+        try:
+            if config_path.split(".")[-1] != "yaml":
+                config_path += ".yaml"
+        except: 
+            pass
+
         # Convert to Path object for cleaner path manipulation
         config_path = Path(config_path)
 
@@ -201,12 +257,6 @@ class BaseRunner:
 class NRPRunner(BaseRunner):
     def __init__(self, config_path):
         super().__init__(config_path)
-
-        # Experiment settings
-        self.experiment = self.config.EXPERIMENT_PARAMETERS.experiment
-        self.experiment += '_independent' if self.config.EXPERIMENT_PARAMETERS.independent else ""
-
-        self.experiment += '_penalty' if self.config.EXPERIMENT_PARAMETERS.penalty else ""
         self.log_dir = os.path.join(str(Path(__file__).resolve().parent.parent.parent), "results")
 
     def init_experiment(self):
@@ -217,10 +267,17 @@ class NRPRunner(BaseRunner):
             else: 
                 agent_fn = DQN
         elif self.config.RL_PARAMETERS.learner == "ppo":
-            agent_fn = PPO
+            if self.config.EXPERIMENT_PARAMETERS.independent:
+                self.learner_kwargs["num_agents"] = self.config.ENV_PARAMETERS.num_agent
+                agent_fn = IndependentPPO
+            else:
+                agent_fn = PPO
         else:
             raise ValueError(f"Unsupported learner type: {self.learner}")
         
+        # remove keys that belong to prm anget
+        del  self.learner_kwargs['replay_buffer_class']
+        del  self.learner_kwargs['replay_buffer_kwargs']
         return super().init_experiment(agent_fn)
 
 class PRMRunner(BaseRunner):
@@ -229,8 +286,6 @@ class PRMRunner(BaseRunner):
         super().__init__(config_path)
 
         # Experiment settings
-        self.experiment = self.config.EXPERIMENT_PARAMETERS.experiment
-        self.experiment += '_penalty' if self.config.EXPERIMENT_PARAMETERS.penalty else ""
         self.log_dir = os.path.join(str(Path(__file__).resolve().parent.parent.parent), "results")
 
     def init_experiment(self):
@@ -241,7 +296,7 @@ class PRMRunner(BaseRunner):
             else: 
                 agent_fn = DQNPRM
         elif self.config.RL_PARAMETERS.learner == "ppo":
-            agent_fn = PPO
+            agent_fn = PPOPRM
         else:
             raise ValueError(f"Unsupported learner type: {self.learner}")
         
@@ -257,14 +312,14 @@ class PRMRunner(BaseRunner):
         predictor = RPMRewardPredictor(
             agent_logger=logger,
             observation_space=env.observation_space,
-            action_space=env.action_space.n,
+            n_actions=env.action_space.n,
             epochs=predictor_epochs,
             device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
             lr=lr,
+            network=self.config.RP_PARAMETERS.network,
             network_kwargs={
-                'h_size': self.config.RP_PARAMETERS.h_size,
                 'emb_dim':self.config.RP_PARAMETERS.emb_dim, 
-                'features_dim': self.config.RP_PARAMETERS.features_dim
+                'fcnet_hiddens': self.config.RP_PARAMETERS.fcnet_hiddens
             }
         )
         return predictor
@@ -289,8 +344,6 @@ class PRMRunner(BaseRunner):
                             predictor=reward_predictor,
                             device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
                             policy_kwargs=policy_kwargs,
-                            replay_buffer_class=PRMShardReplayBuffer,
-                            replay_buffer_kwargs={"episode_length": self.config.ENV_PARAMETERS.ep_length},
                             **self.learner_kwargs
                     )
         rl_agent.set_logger(loggers["rl"])
@@ -309,8 +362,6 @@ class CRMRunner(BaseRunner):
         super().__init__(config_path)
 
         # Experiment settings
-        self.experiment = self.config.EXPERIMENT_PARAMETERS.experiment
-        self.experiment += '_penalty' if self.config.EXPERIMENT_PARAMETERS.penalty else ""
         self.log_dir = os.path.join(str(Path(__file__).resolve().parent.parent.parent), "results")
 
     def init_experiment(self):

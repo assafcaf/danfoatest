@@ -66,9 +66,12 @@ class SingleAgentCallback(BaseCallback):
         while not (True in done):
             actions, _ = self.model.predict(obs, state=None, deterministic=self.deterministic)
             obs, reward, done, info = self.eval_env.step(actions.astype(np.uint8))
-            rewards.append(reward)
+            try:
+                rewards.append(sum([f['true_reward'] for f in info]))
+            except:
+                 rewards.append(reward)
             if render:
-                frame = self.eval_env.venv.venv.venv.vec_envs[0].par_env.env.aec_env.env.env.env.ssd_env.render(mod="RGB")
+                frame = self.eval_env.venv.venv.venv.vec_envs[0].par_env.env.aec_env.env.env.env.ssd_env.render(mode="RGB")
                 # frames.append(im.fromarray(frame.astype(np.uint8)).resize(size=(720, 480), resample=im.BOX).convert("RGB"))
                 frames.append(cv2.resize(frame, self.video_resolution, interpolation=cv2.INTER_NEAREST))
         return np.array(rewards).sum(), frames
