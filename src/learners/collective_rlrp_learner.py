@@ -11,8 +11,6 @@ class CollectiveRLRPLearner:
                  rl_agent,
                  reward_predictor,
                  train_rp_freq=1000,
-                 async_rp_training=True,
-                 parallel_agents=True,
                  rp_learning_starts=10,
                  batch_size=4):
         """
@@ -27,8 +25,6 @@ class CollectiveRLRPLearner:
         self.rl_agent = rl_agent
         self.reward_predictor = reward_predictor
         self.train_rp_freq = train_rp_freq
-        self.async_rp_training = async_rp_training
-        self.parallel_agents = parallel_agents
         self.batch_size = batch_size
         self.total_steps = 0
         self.total_episodes = 0
@@ -158,12 +154,6 @@ class CollectiveRLRPLearner:
         """
         rp_log_dict = self.reward_predictor.train_predictor(buffer=self.rl_agent.buffer, batch_size=self.batch_size, verbose=False)
         return rp_log_dict
-
-    def _train_single_predictor(self, predictor):
-        """
-        Helper function for training a single reward predictor in parallel.
-        """
-        return predictor.train_predictor(verbose=False)
 
     def save(self, path):
         """

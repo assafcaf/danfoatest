@@ -16,7 +16,8 @@ class PRMShardReplayBuffer(ReplayBuffer):
                 device="auto",
                 n_envs=1,
                 optimize_memory_usage=False,
-                episode_length=100, 
+                episode_length=100,
+                num_agemts=0, 
                 *args,
                 **kwargs):
         assert buffer_size%episode_length == 0, (f"Error: Buffer size ({buffer_size}) must be a multiple of episode length ({episode_length}) "
@@ -29,6 +30,7 @@ class PRMShardReplayBuffer(ReplayBuffer):
                         optimize_memory_usage,
                         *args,
                         **kwargs)
+        self.num_agents = num_agemts
         self.episode_length = episode_length
         self.episode_indices = []  # Track episode start indices
         self.experiment_rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
@@ -103,6 +105,32 @@ class PRMShardReplayBuffer(ReplayBuffer):
             experiment_rewards[i] = self.experiment_rewards[start_idx:end_idx, env_idx]
             true_rewards[i] = self.true_rewards[start_idx:end_idx, env_idx]
             aip[i] = self.aip[start_idx:end_idx, env_idx]
+        return PRMEpisodeData(observations=observations,
+                              actions=actions,
+                              experiment_rewards=experiment_rewards,
+                              true_rewards=true_rewards,
+                              aip=aip)
+
+class PRMShardReplayBufferEpisodial(PRMShardReplayBuffer):
+    def get_episodes(self, batch_size=1):
+        """Retrieve full episodes from the buffer."""
+        ##TODO: cheack if realy need to stroe experiment_rewards
+        n_invs = self.n_envs // self.num_agents
+        ep_indices = np.random.choice(len(self.episode_indices), size=batch_size, replace=True)
+        env_indices = np.random.choice(n_invs, size=batch_size, replace=True)
+        observations = np.zeros((batch_size, self.episode_length * self.num_agents, *self.observation_space.shape))
+        actions = np.zeros((batch_size, self.episode_length * self.num_agents))
+        experiment_rewards = np.zeros((batch_size, self.episode_length * self.num_agents))
+        true_rewards = np.zeros((batch_size, self.episode_length * self.num_agents))
+        aip = np.zeros((batch_size, self.episode_length * self.num_agents))
+        for i, (ep_idx, env_idx) in enumerate(zip(ep_indices, env_indices)):
+            start_idx = self.episode_indices[ep_idx]
+            end_idx = start_idx + self.episode_length
+            observations[i] = np.vstack(self.observations[start_idx:end_idx, env_idx*self.num_agents:(env_idx+1)*self.num_agents])
+            actions[i] =  np.vstack(self.actions[start_idx:end_idx, env_idx*self.num_agents:(env_idx+1)*self.num_agents]).squeeze()
+            experiment_rewards[i] =   np.hstack(self.experiment_rewards[start_idx:end_idx, env_idx*self.num_agents:(env_idx+1)*self.num_agents])
+            true_rewards[i] =  np.hstack(self.true_rewards[start_idx:end_idx, env_idx*self.num_agents:(env_idx+1)*self.num_agents])
+            aip[i] =  np.hstack(self.aip[start_idx:end_idx, env_idx*self.num_agents:(env_idx+1)*self.num_agents])
         return PRMEpisodeData(observations=observations,
                               actions=actions,
                               experiment_rewards=experiment_rewards,

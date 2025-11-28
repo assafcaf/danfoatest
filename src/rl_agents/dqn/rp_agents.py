@@ -12,7 +12,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, RolloutReturn, TrainFreq, TrainFrequencyUnit
 from stable_baselines3.common.noise import ActionNoise, VectorizedActionNoise
 import psutil 
-from .single_agent import DQN
+from .commons_agent import DQN
 from stable_baselines3.dqn.policies import DQNPolicy
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.vec_env import DummyVecEnv
@@ -274,9 +274,9 @@ class DQNCRM(DQN):
                 if gradient_steps > 0:
                     self.train(batch_size=self.batch_size, gradient_steps=gradient_steps)
             
-            # check memory usage and if it exceeds 80% shut down the training 
-            if psutil.virtual_memory().percent > 80:
-                print("Memory usage is above 80%. Stopping training.")
+            # check memory usage and if it exceeds 95% shut down the training 
+            if psutil.virtual_memory().percent > 95:
+                print("Memory usage is above 95%. Stopping training.")
                 exit()
             
           
@@ -566,7 +566,7 @@ class DQNCRM(DQN):
         env_fn = lambda: DummyGymEnv(env.observation_space, env.action_space)
         dummy_env = DummyVecEnv([env_fn] * (env.num_envs // num_agents))
         for polid in range(num_agents):
-            model.policies[polid] = sb3_DQN.load(
+            model.policies[polid] = DQN.load(
                 path=path + f"/policy_{polid + 1}/model", env=dummy_env, **kwargs
             )
         return model

@@ -100,7 +100,6 @@ class OneHotCnnNetwork(nn.Module):
         with torch.no_grad():
             sample_input = torch.zeros(1, *observation_space.shape)
             cnn_output_dim = self.cnn(sample_input).shape[1]
-        print(f"cnn_output_dim: {cnn_output_dim}")
         # Linear Projection for One-Hot Encoded Actions
         self.action_projection = nn.Linear(n_actions, fcnet_hiddens[0]) 
         self.fetures = nn.Linear(cnn_output_dim , fcnet_hiddens[0])
@@ -124,7 +123,7 @@ class OneHotCnnNetwork(nn.Module):
         image_features = F.relu(self.fetures(self.cnn(image)))
         
         # One-Hot Encode Action
-        action_one_hot = F.one_hot(torch.tensor(action).squeeze().long(), num_classes=self.n_actions).float()  # Convert action to one-hot
+        action_one_hot = F.one_hot(action.clone().detach().squeeze().long(), num_classes=self.n_actions).float() # Convert action to one-hot
         action_features = self.action_projection(action_one_hot)  # Project to feature space
         # Concatenate features
         combined_features = torch.cat((image_features, action_features), dim=1)

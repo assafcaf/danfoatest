@@ -187,8 +187,10 @@ class MapEnv(gymnasium.Env):
             rgb_arr = self.single_agent_map_to_colors(agent.get_state(), self.color_map)
             # observations[agent.agent_id] = rgb_arr
             observations[agent.agent_id] = {"curr_obs": rgb_arr}
+            infos[agent.agent_id] = {}
             if self.full_state:
-                infos[agent.agent_id] = {"state": self.state}
+                infos[agent.agent_id]["state"] = self.state
+
         return observations, infos
 
     @property

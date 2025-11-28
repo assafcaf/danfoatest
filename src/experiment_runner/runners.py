@@ -8,9 +8,9 @@ from callbacks import SingleAgentCallback
 from configs import Config
 from reward_predictor import AgentLoggerSb3, RPMRewardPredictor, CRMRewardPredictor
 from learners import CollectiveRLRPLearner, IndependentRLRPLearner
-from buffers import PRMShardReplayBuffer, CRMShardReplayBuffer, PRMShardRolloutBuffer
+from buffers import PRMShardReplayBuffer, CRMShardReplayBuffer, PRMShardRolloutBuffer, PRMShardReplayBufferEpisodial
 from env import parallel_env
-from rl_agents import DQN, IndependentDQN, PPO, IndependentPPO, CnnFeatureExtractor, CustomCNN, DQNPRM, DQNCRM, PPOPRM
+from rl_agents import DQN, IndependentDQN, PPO, IndependentPPO, CnnFeatureExtractor, CustomCNN, DQNPRM, DQNCRM, PPOPRM, IndependentDQNRP
 
 import os
 import yaml
@@ -46,7 +46,8 @@ class BaseRunner:
                 "exploration_final_eps": self.config.RL_PARAMETERS.exploration_final_eps,
                 "policy": self.config.RL_PARAMETERS.policy,
                 'replay_buffer_class': PRMShardReplayBuffer,
-                'replay_buffer_kwargs': {"episode_length": self.config.ENV_PARAMETERS.ep_length}
+                'replay_buffer_kwargs': {"episode_length": self.config.ENV_PARAMETERS.ep_length,
+                                         "num_agemts": self.config.ENV_PARAMETERS.num_agent}
             }
         else: 
             self.learner_kwargs = {
@@ -62,9 +63,10 @@ class BaseRunner:
             "n_epochs": self.config.RL_PARAMETERS.n_epochs,
             "vf_coef": self.config.RL_PARAMETERS.vf_coef,
             "clip_range": self.config.RL_PARAMETERS.clip_range,
-            "rollout_buffer_class": PRMShardRolloutBuffer,
+            "rollout_buffer_class": PRMShardReplayBufferEpisodial if self.config.RP_PARAMETERS.episodial else PRMShardReplayBuffer,
             "rollout_buffer_kwargs": {"replay_kwargs": {"episode_length": self.config.ENV_PARAMETERS.ep_length,
-                                                        "buffer_size": self.compute_buffer_size()}}
+                                                        "buffer_size": self.compute_buffer_size(),
+                                                        "num_agemts": self.config.ENV_PARAMETERS.num_agent}}
             }
                 # Experiment settings
         
@@ -160,11 +162,12 @@ class BaseRunner:
         return agent
 
     def setup_loggers(self, log_dir):
-        # if self.config.EXPERIMENT_PARAMETERS.independent:
-        #     loggers = [configure(os.path.join(log_dir, f"agent_{i}"), ["stdout", "tensorboard", "csv"]) for i in range(self.config.ENV_PARAMETERS.num_agent)]
-        # else:
-        #     loggers = [configure(log_dir, ["stdout", "tensorboard", "csv"])]
-        return [configure(log_dir, ["stdout", "tensorboard", "csv"])]
+        if self.config.EXPERIMENT_PARAMETERS.independent:
+            loggers = [configure(os.path.join(log_dir), self.OUTPUT_CHANNELS)]
+            loggers += [configure(os.path.join(log_dir, f"agent_{i}"), ["tensorboard", 'csv']) for i in range(self.config.ENV_PARAMETERS.num_agent)]
+        else:
+            loggers = [configure(log_dir, self.OUTPUT_CHANNELS)]
+        return loggers
 
     def run(self):
         """Runs the experiment."""
@@ -284,15 +287,15 @@ class PRMRunner(BaseRunner):
 
     def __init__(self, config_path):
         super().__init__(config_path)
-
+        self.learner_kwargs['replay_buffer_class'] = PRMShardReplayBufferEpisodial if self.config.RP_PARAMETERS.episodial else PRMShardReplayBuffer
         # Experiment settings
         self.log_dir = os.path.join(str(Path(__file__).resolve().parent.parent.parent), "results")
-
+        self.experiment += '-episodial' if self.config.RP_PARAMETERS.episodial else ""
     def init_experiment(self):
         if self.config.RL_PARAMETERS.learner == "dqn":
             if self.config.EXPERIMENT_PARAMETERS.independent:
                 self.learner_kwargs["num_agents"] = self.config.ENV_PARAMETERS.num_agent
-                agent_fn = IndependentDQN
+                agent_fn = IndependentDQNRP
             else: 
                 agent_fn = DQNPRM
         elif self.config.RL_PARAMETERS.learner == "ppo":
@@ -325,10 +328,11 @@ class PRMRunner(BaseRunner):
         return predictor
 
     def setup_loggers(self, log_dir):
-        rl_logger = configure(log_dir, ["stdout", "tensorboard", "csv"])
-        rp_loggers = AgentLoggerSb3(rl_logger)
-        loggers = {"rl": [rl_logger],
-                   "rp": [rp_loggers]}
+        # rl_logger = configure(log_dir, ["stdout", "tensorboard", "csv"])
+        rl_loggers = super().setup_loggers(log_dir)
+        rp_loggers =  AgentLoggerSb3(rl_loggers[0])
+        loggers = {"rl": rl_loggers,
+                   "rp": rp_loggers}
         return loggers
 
     def setup_agent(self, vec_env, agent_fn, log_dir):
@@ -346,13 +350,18 @@ class PRMRunner(BaseRunner):
                             policy_kwargs=policy_kwargs,
                             **self.learner_kwargs
                     )
-        rl_agent.set_logger(loggers["rl"])
-        agent = CollectiveRLRPLearner(rl_agent=rl_agent,
+        
+        if self.config.EXPERIMENT_PARAMETERS.independent:
+            learner_fn = IndependentRLRPLearner
+            rl_agent.set_logger(loggers["rl"])
+        else:
+            learner_fn = CollectiveRLRPLearner
+            rl_agent.set_logger(loggers["rl"][0])
+
+        agent = learner_fn(rl_agent=rl_agent,
                                       rp_learning_starts=self.config.RP_PARAMETERS.learning_starts,
                                       reward_predictor=reward_predictor,
                                       train_rp_freq=train_rp_freq,
-                                      async_rp_training=False,
-                                      parallel_agents=False,
                                       batch_size=self.config.RP_PARAMETERS.batch_size*2)
 
         return agent   

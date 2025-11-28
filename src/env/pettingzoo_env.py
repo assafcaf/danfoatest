@@ -59,9 +59,15 @@ class ssd_parallel_env(ParallelEnv):
                 infos[k]['metrics'] = self.ssd_env.get_social_metrics()
                 
             # inser desired rewards at tghe end if episode
-            if self.ssd_env.metric == 'Efficiency*Peace':  # eff * global peace
+            if self.ssd_env.metric == 'Efficiency2':  # eff * global peace
+                for k in rews.keys():
+                    rews[k] = infos[k]['metrics']['efficiency']
+            elif self.ssd_env.metric == 'Efficiency*Peace':  # eff * global peace
                 for k in rews.keys():
                     rews[k] = infos[k]['metrics']['efficiency'] * infos[k]['metrics']['peace']
+            elif self.ssd_env.metric == 'Efficiency*Peace2':  # eff * eq * global peace
+                for k in rews.keys():
+                   rews[k] = infos[k]['metrics']['efficiency'] * (infos[k]['metrics']['peace']**4)
             elif self.ssd_env.metric == 'Efficiency*Peace*Equality':  # eff * eq * global peace
                 for k in rews.keys():
                     rews[k] = infos[k]['metrics']['efficiency'] * infos[k]['metrics']['peace'] * infos[k]['metrics']['equality']

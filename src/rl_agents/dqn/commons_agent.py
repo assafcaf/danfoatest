@@ -2,12 +2,12 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from stable_baselines3 import DQN as sb3_DQN
 from stable_baselines3.common.utils import  safe_mean
-
+from ..utils import average_nested_dicts
 
 
 class DQN(sb3_DQN):
 
-    def _update_info_buffer(self, infos: List[Dict[str, Any]], dones: Optional[np.ndarray] = None) -> None:
+    def _update_info_buffer1(self, infos: List[Dict[str, Any]], dones: Optional[np.ndarray] = None) -> None:
         """
         Retrieve reward, episode length, episode success and update the buffer
         if using Monitor wrapper or a GoalEnv.
@@ -25,6 +25,22 @@ class DQN(sb3_DQN):
             if maybe_ep_info is not None:
                 self.ep_info_buffer.extend([maybe_ep_info | maybe_ep_metrics| maybe_ep_fire])
             if maybe_is_success is not None and dones[idx]:
+                self.ep_success_buffer.append([maybe_is_success])
+    
+    def _update_info_buffer(self, infos: List[Dict[str, Any]], dones: Optional[np.ndarray] = None) -> None:
+        """
+        Retrieve reward, episode length, episode success and update the buffer
+        if using Monitor wrapper or a GoalEnv.
+
+        :param infos: List of additional information about the transition.
+        :param dones: Termination signals
+        """
+        if dones.all():
+            maybe_ep_info = average_nested_dicts(infos, "episode")
+            maybe_is_success = average_nested_dicts(infos, "is_success")
+            maybe_ep_metrics = average_nested_dicts(infos, "metrics")
+            self.ep_info_buffer.extend([maybe_ep_info | maybe_ep_metrics])
+            if  len(maybe_is_success.items()) > 0:
                 self.ep_success_buffer.append(maybe_is_success)
     
     def _dump_logs(self):
@@ -41,4 +57,7 @@ class DQN(sb3_DQN):
         super()._dump_logs()
 
     def set_logger(self, logger):
-        super().set_logger(logger[0])
+        if type(logger) == list:
+            if len(logger) == 1:
+                logger = logger[0]
+        super().set_logger(logger)

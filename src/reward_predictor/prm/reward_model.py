@@ -101,7 +101,7 @@ class ComparisonRewardPredictor(RewardModel):
         delta = torch.tensor(left_r - right_r).abs()
         return left_obs, left_acts, right_obs, right_acts, labels, delta
     
-    def train_predictor(self, buffer, batch_size, verbose=False):
+    def train_concat_batch_predictor(self, buffer, batch_size, verbose=False):
         """Train the reward predictor network."""
         losses = []
         batch = None
@@ -121,7 +121,50 @@ class ComparisonRewardPredictor(RewardModel):
         log_dict = self.log_step(batch, predicted_rewards, avg_loss)
         torch.cuda.empty_cache()
         return log_dict
+    
+    def train_predictor(self, buffer, batch_size, verbose=False):
+        """Train the reward predictor network."""
+        losses = []
+        predicted_rewards = None
+        for _ in range(self.epochs):
+            batch = buffer.get_episodes(batch_size)
+            left_obs, left_acts, right_obs, right_acts, labels, delta = self.transform_batch(batch)
+            loss, predicted_rewards = self._train_step(left_obs, left_acts, right_obs, right_acts, labels, delta)
+            losses.append(loss.item())
 
+        avg_loss = np.mean(losses) if losses else 0
+        if verbose:
+            print(f"[Reward Predictor] Training completed. Avg loss: {avg_loss}")
+        
+        log_dict = self.log_step(batch, predicted_rewards, avg_loss)
+        torch.cuda.empty_cache()
+        return log_dict
+    
+    def predict_batch_subsequent(self, obs_segments, act_segments):
+        """
+        :param obs_segments: tensor with shape = (batch_size, segment_length) + observation_space
+        :param act_segments: tensor with shape = (batch_size, segment_length) + act_shape
+        :param network: neural net with .run() that maps obs and act tensors into a (scalar) value tensor
+        :param observation_space: a tuple representing the shape of the observation space
+        :param act_shape: a tuple representing the shape of the action space
+        :return: tensor with shape = (batch_size, segment_length)
+        """
+        # TODO: make this work with pytorch
+        
+        batchsize = obs_segments.shape[0]
+        segment_length = obs_segments.shape[1]
+        subsequent_length = segment_length//2
+        subsequent = np.random.choice(segment_length, size=subsequent_length, replace=False)
+
+        obs = obs_segments[:, subsequent].view((-1,) + self.observation_space.shape)
+        acts = act_segments[:, subsequent].view((-1, 1))
+
+        # # Run them through our neural network
+        rewards = self.model(obs, acts)
+
+        # # Group the rewards back into their segments
+        return rewards.view((batchsize, subsequent_length))
+    
     def predict_batch(self, obs_segments, act_segments):
         """
         :param obs_segments: tensor with shape = (batch_size, segment_length) + observation_space
@@ -135,7 +178,7 @@ class ComparisonRewardPredictor(RewardModel):
         
         batchsize = obs_segments.shape[0]
         segment_length = obs_segments.shape[1]
-
+            
         # Temporarily chop up segments into individual observations and actions
         # TODO: makesure its works fine without transpose (observation_space)
         obs = obs_segments.view((-1,) + self.observation_space.shape)
@@ -150,9 +193,9 @@ class ComparisonRewardPredictor(RewardModel):
    
     def _train_step(self, left_obs, left_acts, right_obs, right_acts, labels, delta):
         self.model.train()
-
-        rewards_left = self.predict_batch(left_obs, left_acts)
-        rewards_right = self.predict_batch(right_obs, right_acts)
+        # TODO: pay attention that this is replaces to be subsequent
+        rewards_left = self.predict_batch_subsequent(left_obs, left_acts)
+        rewards_right = self.predict_batch_subsequent(right_obs, right_acts)
 
         logits = torch.stack([rewards_left.sum(axis=1), rewards_right.sum(axis=1)], dim=1)
         # loss = self.loss(rewards_left.sum(axis=1), rewards_right.sum(axis=1), labels)
@@ -166,7 +209,11 @@ class ComparisonRewardPredictor(RewardModel):
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        predicted_rewards = torch.cat([rewards_left.flatten(), rewards_right.flatten()], dim=0).detach().cpu().numpy()
+        with torch.no_grad():
+            predicted_rewards = torch.cat([
+                self.predict_batch(left_obs, left_acts).flatten(),
+                self.predict_batch(right_obs, right_acts).flatten()],
+            dim=0).detach().cpu().numpy()
         self.model.eval()
         return loss, predicted_rewards.squeeze()
 

@@ -1,2 +1,1 @@
-from .collective_rlrp_learner import CollectiveRLRPLearner
-from .independent_rlrp_learner import IndependentRLRPLearner
+from .learners import CollectiveRLRPLearner, IndependentRLRPLearner

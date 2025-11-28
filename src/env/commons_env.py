@@ -3,7 +3,7 @@ import gymnasium
 # from social_dilemmas.envs
 from .commons_agent import HarvestCommonsAgent, HARVEST_DEFAULT_VIEW_SIZE
 from .map_env import MapEnv, ACTIONS
-from .maps import SMALL_HARVEST_MAP, MEDIUM_HARVEST_MAP, HARVEST_MAP_LARGER, HARVEST_MAP, ARIGINALHARVEST_MAP_LARGER
+from .maps import SMALL_HARVEST_MAP, MEDIUM_HARVEST_MAP, MEDIUM2_HARVEST_MAP, HARVEST_MAP_LARGER, HARVEST_MAP, ARIGINALHARVEST_MAP_LARGER
 APPLE_RADIUS = 2
 
 # Add custom actions to the agent
@@ -16,7 +16,8 @@ OUTCAST_POSITION = -99
 
 
 MAP = {"small": SMALL_HARVEST_MAP,
-       "medium": MEDIUM_HARVEST_MAP}
+       "medium": MEDIUM_HARVEST_MAP,
+       "medium2": MEDIUM2_HARVEST_MAP}
 
 
 class HarvestCommonsEnv(MapEnv):

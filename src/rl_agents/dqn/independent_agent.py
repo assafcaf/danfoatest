@@ -3,13 +3,13 @@ from ..utils import DummyGymEnv
 import time
 import numpy as np
 import os
-
+from collections import deque
 from stable_baselines3 import DQN as sb3_DQN
 from stable_baselines3.common.buffers import ReplayBuffer
-from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
+from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback
 from stable_baselines3.dqn.policies import CnnPolicy, DQNPolicy, MlpPolicy, MultiInputPolicy
-from stable_baselines3.common.policies import BasePolicy
-from stable_baselines3.common.utils import obs_as_tensor, safe_mean, should_collect_more_steps
+
+from stable_baselines3.common.utils import  should_collect_more_steps
 from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, RolloutReturn, Schedule, TrainFreq, TrainFrequencyUnit
@@ -20,7 +20,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.buffers import DictReplayBuffer, ReplayBuffer
 import psutil 
 
-from .single_agent import DQN
+from .commons_agent import DQN
 
 
 class IndependentDQN(DQN):
@@ -35,8 +35,7 @@ class IndependentDQN(DQN):
 
     def update_agents_last_obs(self):
         for i in range(self.num_agents):
-            last_obs = self._last_obs[i::self.num_agents]
-            self.agents[i]._last_obs = last_obs
+            self.agents[i]._last_obs = self._last_obs.reshape((self.num_envs, self.num_agents, *self.observation_space.shape))[:, i]
 
     def learn(
         self,
@@ -56,9 +55,6 @@ class IndependentDQN(DQN):
             progress_bar
         )
         self.update_agents_last_obs()
-        for agent in self.agents:
-            agent.set_logger([self.logger])
-
         callback.on_training_start(locals(), globals())
 
         while self.num_timesteps < total_timesteps:
@@ -83,8 +79,8 @@ class IndependentDQN(DQN):
                     self.train(batch_size=self.batch_size, gradient_steps=gradient_steps)
             
             # check memory usage and if it exceeds 80% shut down the training 
-            if psutil.virtual_memory().percent > 80:
-                print("Memory usage is above 80%. Stopping training.")
+            if psutil.virtual_memory().percent > 95:
+                print("Memory usage is above 95%. Stopping training.")
                 exit()
             
           
@@ -155,15 +151,15 @@ class IndependentDQN(DQN):
                     agent.actor.reset_noise(env.num_envs)
 
             # Select action randomly or according to policy
-            agents_actions, agents_buffer_actions = [], []
-            for agent in self.agents:
+            agents_actions, agents_buffer_actions = np.zeros((self.num_envs, self.num_agents), dtype=int), np.zeros((self.num_envs, self.num_agents), dtype=int)
+            for i, agent in enumerate(self.agents):
                 actions_, buffer_actions_ = agent._sample_action(learning_starts, action_noise, self.num_envs)
-                agents_actions.append(actions_)
-                agents_buffer_actions.append(buffer_actions_)
+                agents_actions[:, i] = actions_
+                agents_buffer_actions[:, i] = buffer_actions_
 
             #  concatenate actions of all agents
-            actions = np.concatenate(np.array(agents_actions).T, axis=0)
-            buffer_actions = np.concatenate(np.array(agents_buffer_actions).T, axis=0)
+            actions = agents_actions.reshape(-1)
+            buffer_actions = agents_buffer_actions.reshape(-1)
             
             # Rescale and perform action
             new_obs, rewards, dones, infos = env.step(actions)
@@ -181,6 +177,8 @@ class IndependentDQN(DQN):
                 return RolloutReturn(n_collected_steps * env.num_envs, n_collected_episodes, continue_training=False)
 
             # Retrieve reward and episode length if using Monitor wrapper
+            for i, agent in enumerate(self.agents):
+                agent._update_info_buffer(infos[i::self.num_agents], dones[i::self.num_agents])
             self._update_info_buffer(infos, dones)
 
             # Store data in replay buffer (normalized action and unnormalized observation)
@@ -211,6 +209,8 @@ class IndependentDQN(DQN):
                         action_noise.reset(**kwargs)
 
                     if log_interval is not None and self._episode_num % log_interval == 0:
+                        for agent in self.agents:
+                            agent._dump_logs()
                         super()._dump_logs()
 
 
@@ -223,10 +223,10 @@ class IndependentDQN(DQN):
         self._last_obs = new_obs
         for i, (agent, replay_buffer) in enumerate(zip(self.agents, replay_buffers)):
             agent._store_transition(replay_buffer,
-                                    actions[i::self.num_agents],
-                                    new_obs[i::self.num_agents],
-                                    rewards[i::self.num_agents],
-                                    dones[i::self.num_agents],
+                                    actions.reshape((self.num_envs, self.num_agents))[:, i],
+                                    new_obs.reshape((self.num_envs, self.num_agents, *self.observation_space.shape))[:, i],
+                                    rewards.reshape((self.num_envs, self.num_agents))[:, i],
+                                     dones.reshape((self.num_envs, self.num_agents))[:, i],
                                     infos[i::self.num_agents])
     
     @classmethod
@@ -275,8 +275,10 @@ class IndependentDQN(DQN):
             agent.set_logger(self.logger)
             agent._last_episode_starts = np.ones((self.num_envs,), dtype=bool)
 
-    def set_logger(self, logger):
-        super().set_logger(logger)
+    def set_logger(self, loggers):
+        super().set_logger(loggers[0])
+        for i, agent in enumerate(self.agents):
+           agent.set_logger(loggers[i+1])
     
     def predict(self, observation, state=None, episode_start=None, deterministic=False):
         actions = np.zeros((self.num_envs * self.num_agents))
@@ -289,3 +291,19 @@ class IndependentDQN(DQN):
             )
             actions[i::self.num_agents] = ac
         return actions, None
+
+    def _setup_learn(self,  total_timesteps, callback, reset_num_timesteps, tb_log_name, progress_bar):
+       total_timesteps, callback  = super()._setup_learn(
+            total_timesteps,
+            callback,
+            reset_num_timesteps,
+            tb_log_name,
+            progress_bar
+        )
+       for agent in self.agents:
+            if agent.ep_info_buffer is None or reset_num_timesteps:
+                # Initialize buffers if they don't exist, or reinitialize if resetting counters
+                agent.ep_info_buffer = deque(maxlen=self._stats_window_size)
+                agent.ep_success_buffer = deque(maxlen=self._stats_window_size)
+
+       return  total_timesteps, callback

@@ -29,6 +29,21 @@ SMALL_HARVEST_MAP = [
     '@P P A    A    A    A P P@',
     '@@@@@@@@@@@@@@@@@@@@@@@@@@', ]
 
+MEDIUM2_HARVEST_MAP = [
+    "@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
+    "@  P     A P AA    P    AAA@",
+    "@P    A AAA  AAA    A    A @",
+    "@ A  AAA A    A  A AAA  A  @",
+    "@AAA  A A    A  AAA A  AAA @",
+    "@ P  A       A  A AAA    A @",
+    "@A  AAA  A  A  AAA A    AAA@",
+    "@    A A   AAA  A A      A @",
+    "@P    AAA   A A  AAA      A@",
+    "@ A    A     AAA  A  P     @",
+    "@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
+]
+
+
 HARVEST_MAP = [
     "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
     "@ P   P      A    P AAAAA    P  A P  @",

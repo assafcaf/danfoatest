@@ -1,10 +1,10 @@
 ENV_PARAMETERS:
-  num_frames: 3
-  num_agent: 7
-  ep_length: 600
+  num_frames: 2
+  num_agent: 4
+  ep_length: 400
   num_envs: 4
   num_cpus: 4
-  map: 'HARVEST_MAP'
+  map: 'MEDIUM2_HARVEST_MAP'
   agent_view_range: 7
 
 RL_PARAMETERS:
@@ -15,13 +15,13 @@ RL_PARAMETERS:
   tau: 0.035
   gamma: 0.99
   train_freq: 4
-  exploration_fraction: 0.2
+  exploration_fraction: 0.15
   learning_starts: 50_000
   buffer_size: 300
-  exploration_final_eps: 0.1
+  exploration_final_eps: 0.03
   # policy: CnnPolicy
   policy: MlpPolicy
-  render_frequency: 10
+  render_frequency: 50
   features_dim: 128  # output layer of cnn extractor AND shared layer for policy and value functions
 
 EXPERIMENT_PARAMETERS:
@@ -32,4 +32,4 @@ EXPERIMENT_PARAMETERS:
   independent: False
   experiment: "nrp"
   debug: False
-  n_episodes: 2_000
+  n_episodes: 8_000

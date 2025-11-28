@@ -1,10 +1,10 @@
 ENV_PARAMETERS:
-  num_frames: 3
-  num_agent: 7
-  ep_length: 600
+  num_frames: 2
+  num_agent: 4
+  ep_length: 400
   num_envs: 4
   num_cpus: 4
-  map: 'HARVEST_MAP'
+  map: 'MEDIUM2_HARVEST_MAP'
   agent_view_range: 7
 
 RL_PARAMETERS:
@@ -18,34 +18,38 @@ RL_PARAMETERS:
   exploration_fraction: 0.35
   exploration_final_eps: 0.03
   learning_starts: 1_500_000
-  buffer_size: 500
+  buffer_size: 1000
   policy: MlpPolicy
-  render_frequency: 25
+  render_frequency: 50
   features_dim: 128  # output layer of cnn extractor AND shared layer for policy and value functions
 
 EXPERIMENT_PARAMETERS:
   penalty: False
-  metric: "Efficiency"
-
+  # metric: "Efficiency2"
   # metric: "Efficiency*Sustainability"
+  metric: "Efficiency*Peace"
+  # metric: "Efficiency*Peace2"
   experiment: "prm"
   independent: False 
   run_name_template: "{experiment}-{metric}-{spawn_speed}-{num_agents}_agents"
-  gpu_id: 0
+  gpu_id: 1
   debug: False
-  n_episodes: 6_000
+  n_episodes: 8_000
 
 
 RP_PARAMETERS:
-  learning_starts: 1
+  learning_starts: 32
   batch_size: 32
-  train_freq: 1
+  train_freq: 5
   predictor_epochs: 3
   lr: 0.0005
   emb_dim: 32
   features_dim: 512
   fcnet_hiddens: [64, 32, 16]
   network: "OneHotCnnNetwork" # options -> [EmbedCnnNetwork, OneHotCnnNetwork]
+  episodial: False
+  # episodial: True
+  # subsequent: False
   
     
     

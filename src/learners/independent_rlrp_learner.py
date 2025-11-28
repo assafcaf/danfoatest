@@ -11,8 +11,6 @@ class IndependentRLRPLearner:
                  rl_agent,
                  reward_predictor,
                  train_rp_freq=1000,
-                 async_rp_training=True,
-                 parallel_agents=True,
                  rp_learning_starts=10,
                  batch_size=4):
         """
@@ -27,8 +25,6 @@ class IndependentRLRPLearner:
         self.rl_agent = rl_agent
         self.reward_predictor = reward_predictor
         self.train_rp_freq = train_rp_freq
-        self.async_rp_training = async_rp_training
-        self.parallel_agents = parallel_agents
         self.batch_size = batch_size
         self.total_steps = 0
         self.total_episodes = 0
@@ -77,8 +73,9 @@ class IndependentRLRPLearner:
             )
         ep_cnt = 0
         self.rl_agent.update_agents_last_obs()
-        for agent in self.rl_agent.agents:
-            agent.set_logger([self.rl_agent.logger])
+        for agent, logger in zip(self.rl_agent.agents, self.loggers):
+            agent.set_logger(logger)
+
         callback.on_training_start(locals(), globals())
         assert self.rl_agent.env is not None, "You must set the environment before calling learn()"
 
